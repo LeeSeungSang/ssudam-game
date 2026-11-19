@@ -350,7 +350,7 @@ window.Ssudam = window.Ssudam || {};
         ctx.fillStyle = `rgba(239, 68, 68, ${0.16 + 0.1 * Math.sin(time * 8)})`;
         ctx.fillRect(0, P.top, P.left, P.bottom - P.top);
         ctx.fillRect(P.right, P.top, W - P.right, P.bottom - P.top);
-        ctx.fillRect(0, P.bottom, W, (layout.mode === 'portrait' ? 52 : layout.WORLD_H - P.bottom));
+        ctx.fillRect(0, P.bottom, W, (layout.mode === 'portrait' ? ((layout.DECK_TOP || 928) - P.bottom) : layout.WORLD_H - P.bottom));
       }
     }
 
@@ -364,6 +364,18 @@ window.Ssudam = window.Ssudam || {};
 
       ctx.fillStyle = pal.plazaEdge;
       ctx.fillRect(0, Math.max(0, splitY), this.cssW, this.cssH - Math.max(0, splitY));
+
+      if (vp.layout.mode === 'portrait') {
+        const deckTopCss = vp.offsetY + (vp.layout.DECK_TOP || 928) * vp.scale;
+        ctx.fillStyle = 'rgba(10, 32, 72, 0.96)';
+        ctx.fillRect(0, deckTopCss, this.cssW, Math.max(0, this.cssH - deckTopCss));
+        ctx.strokeStyle = 'rgba(147, 197, 253, 0.42)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, deckTopCss);
+        ctx.lineTo(this.cssW, deckTopCss);
+        ctx.stroke();
+      }
     }
 
     _drawSuwonStationStatic(ctx, pal, layout) {
@@ -583,7 +595,8 @@ window.Ssudam = window.Ssudam || {};
       ctx.strokeRect(P.left, P.top, P.right - P.left, P.bottom - P.top);
       ctx.setLineDash([]);
 
-      const bottomZoneH = layout.mode === 'portrait' ? 42 : H - P.bottom;
+      const deckTop = layout.DECK_TOP || (P.bottom + 36);
+      const bottomZoneH = layout.mode === 'portrait' ? (deckTop - P.bottom) : H - P.bottom;
       ctx.fillStyle = 'rgba(239, 68, 68, 0.06)';
       ctx.fillRect(0, P.top, P.left, P.bottom - P.top);
       ctx.fillRect(P.right, P.top, W - P.right, P.bottom - P.top);
@@ -592,17 +605,17 @@ window.Ssudam = window.Ssudam || {};
       ctx.fillStyle = 'rgba(220, 38, 38, 0.72)';
       ctx.font = '800 14px "Pretendard", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('⚾ 광장 밖 홈런 투척 ZONE (투기자 추방!)', W * 0.5, P.bottom + 26);
+      ctx.fillText('⚾ 광장 밖 홈런 투척 ZONE (투기자 추방!)', W * 0.5, P.bottom + 24);
 
       if (layout.mode === 'portrait') {
         // Dedicated clean dark-navy bottom control deck in portrait mode
-        ctx.fillStyle = 'rgba(11, 42, 91, 0.88)';
-        ctx.fillRect(0, P.bottom + 42, W, H - (P.bottom + 42));
-        ctx.strokeStyle = 'rgba(147, 197, 253, 0.35)';
+        ctx.fillStyle = 'rgba(10, 32, 72, 0.96)';
+        ctx.fillRect(0, deckTop, W, H - deckTop);
+        ctx.strokeStyle = 'rgba(147, 197, 253, 0.42)';
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.moveTo(0, P.bottom + 42);
-        ctx.lineTo(W, P.bottom + 42);
+        ctx.moveTo(0, deckTop);
+        ctx.lineTo(W, deckTop);
         ctx.stroke();
       }
       ctx.restore();
@@ -1976,64 +1989,123 @@ window.Ssudam = window.Ssudam || {};
 
     _drawTouchControls(ctx, touch, isHolding) {
       ctx.save();
-      const compact = this.cssW < 560;
       const joyX = touch.joyOrigin.x;
       const joyY = touch.joyOrigin.y;
+      const outerR = touch.joyOuterR;
+      const knobR = touch.joyKnobR;
       const knobX = touch.leftActive ? touch.joyCurrent.x : joyX;
       const knobY = touch.leftActive ? touch.joyCurrent.y : joyY;
 
       const jdx = knobX - joyX;
       const jdy = knobY - joyY;
       const jdist = Math.hypot(jdx, jdy);
-      const clampedX = jdist > touch.joyOuterR ? joyX + (jdx / jdist) * touch.joyOuterR : knobX;
-      const clampedY = jdist > touch.joyOuterR ? joyY + (jdy / jdist) * touch.joyOuterR : knobY;
+      const clampedX = jdist > outerR ? joyX + (jdx / jdist) * outerR : knobX;
+      const clampedY = jdist > outerR ? joyY + (jdy / jdist) * outerR : knobY;
 
-      // Fixed Left Joystick
-      ctx.fillStyle = touch.leftActive ? 'rgba(255, 255, 255, 0.24)' : 'rgba(255, 255, 255, 0.14)';
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
-      ctx.lineWidth = 2;
+      if (touch.mode === 'portrait') {
+        ctx.strokeStyle = 'rgba(147, 197, 253, 0.22)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(this.cssW * 0.5, joyY - outerR + 8);
+        ctx.lineTo(this.cssW * 0.5, joyY + outerR - 8);
+        ctx.stroke();
+      }
+
+      // Fixed Left Joystick (large & inward-centered)
+      ctx.fillStyle = touch.leftActive ? 'rgba(56, 189, 248, 0.22)' : 'rgba(255, 255, 255, 0.13)';
+      ctx.strokeStyle = touch.leftActive ? 'rgba(125, 211, 252, 0.85)' : 'rgba(255, 255, 255, 0.58)';
+      ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.arc(joyX, joyY, touch.joyOuterR, 0, Math.PI * 2);
+      ctx.arc(joyX, joyY, outerR, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
 
-      ctx.fillStyle = touch.leftActive ? 'rgba(56, 189, 248, 0.85)' : 'rgba(255, 255, 255, 0.45)';
+      // Subtle 4-way directional triangles inside outer ring
+      const arrowDist = outerR - 11;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.34)';
+      for (let i = 0; i < 4; i++) {
+        const ang = (Math.PI * 0.5) * i;
+        ctx.save();
+        ctx.translate(joyX + Math.cos(ang) * arrowDist, joyY + Math.sin(ang) * arrowDist);
+        ctx.rotate(ang);
+        ctx.beginPath();
+        ctx.moveTo(5, 0);
+        ctx.lineTo(-4, -4);
+        ctx.lineTo(-4, 4);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Tactile inner knob with outer soft ring and bold '이동' inside
+      ctx.fillStyle = touch.leftActive ? 'rgba(56, 189, 248, 0.32)' : 'rgba(255, 255, 255, 0.24)';
       ctx.beginPath();
-      ctx.arc(clampedX, clampedY, touch.joyKnobR, 0, Math.PI * 2);
+      ctx.arc(clampedX, clampedY, knobR + 4, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.fillStyle = 'rgba(255,255,255,0.82)';
-      ctx.font = '700 10.5px "Pretendard", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('이동', joyX, joyY + touch.joyOuterR + 14);
+      ctx.fillStyle = touch.leftActive ? 'rgba(56, 189, 248, 0.92)' : 'rgba(255, 255, 255, 0.72)';
+      ctx.beginPath();
+      ctx.arc(clampedX, clampedY, knobR, 0, Math.PI * 2);
+      ctx.fill();
 
-      // Right Touch-to-Grab / Swing-to-Throw Pad
-      const actX = this.cssW - (compact ? 62 : 92);
-      const actY = this.cssH - (compact ? 74 : 92);
-      const actR = compact ? 42 : 46;
-      ctx.fillStyle = isHolding ? 'rgba(250, 204, 21, 0.28)' : 'rgba(34, 197, 94, 0.24)';
-      ctx.strokeStyle = isHolding ? 'rgba(250, 204, 21, 0.9)' : 'rgba(74, 222, 128, 0.8)';
-      ctx.lineWidth = 2.5;
+      ctx.fillStyle = '#0b2a5b';
+      ctx.font = '900 13px "Pretendard", "Malgun Gothic", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('이동', clampedX, clampedY + 4.5);
+
+      // Right Touch-to-Grab / Swing-to-Throw Pad (large & symmetric around midline)
+      const actX = touch.actCenter.x;
+      const actY = touch.actCenter.y;
+      const actR = touch.actR;
+      ctx.fillStyle = isHolding ? 'rgba(250, 204, 21, 0.32)' : 'rgba(34, 197, 94, 0.28)';
+      ctx.strokeStyle = isHolding ? '#fde047' : '#4ade80';
+      ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.arc(actX, actY, actR, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
 
+      ctx.save();
+      ctx.strokeStyle = isHolding ? 'rgba(253, 224, 71, 0.45)' : 'rgba(134, 239, 172, 0.38)';
+      ctx.lineWidth = 1.5;
+      if (isHolding) ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.arc(actX, actY, Math.max(10, actR - 8), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+
+      const primarySize = actR < 52 ? 14 : 17;
+      const secondarySize = actR < 52 ? 10 : 11.5;
+      ctx.textAlign = 'center';
       ctx.fillStyle = '#ffffff';
-      ctx.font = `900 ${compact ? 11.5 : 13}px "Pretendard", sans-serif`;
-      ctx.fillText(isHolding ? '스윙 던지기!' : '터치 집기!', actX, actY + 4);
+      ctx.font = `900 ${primarySize}px "Pretendard", "Malgun Gothic", sans-serif`;
+      ctx.fillText(isHolding ? '💨 스윙!' : '🤏 잡기', actX, actY - 3);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.font = `700 ${secondarySize}px "Pretendard", sans-serif`;
+      ctx.fillText(isHolding ? '방향 드래그' : '터치해서 집기', actX, actY + 15);
 
       if (touch.rightActive && touch.rightDragged) {
+        const dx = touch.rightCurrent.x - touch.rightStart.x;
+        const dy = touch.rightCurrent.y - touch.rightStart.y;
+        const ang = Math.atan2(dy, dx);
         ctx.strokeStyle = '#fde047';
-        ctx.lineWidth = 3.5;
+        ctx.lineWidth = 4.5;
         ctx.beginPath();
         ctx.moveTo(touch.rightStart.x, touch.rightStart.y);
         ctx.lineTo(touch.rightCurrent.x, touch.rightCurrent.y);
         ctx.stroke();
+
+        ctx.save();
+        ctx.translate(touch.rightCurrent.x, touch.rightCurrent.y);
+        ctx.rotate(ang);
         ctx.fillStyle = '#fde047';
         ctx.beginPath();
-        ctx.arc(touch.rightCurrent.x, touch.rightCurrent.y, 10, 0, Math.PI * 2);
+        ctx.moveTo(10, 0);
+        ctx.lineTo(-8, -8);
+        ctx.lineTo(-8, 8);
+        ctx.closePath();
         ctx.fill();
+        ctx.restore();
       }
       ctx.restore();
     }

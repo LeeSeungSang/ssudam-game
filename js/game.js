@@ -190,6 +190,7 @@ window.Ssudam = window.Ssudam || {};
       this._hudCache = {};
 
       this._bindUI();
+      this._syncLayout(false);
       this._refreshTitleScores();
       this._refreshGlobalRankings();
       this._seedIdleScene();
@@ -206,6 +207,16 @@ window.Ssudam = window.Ssudam || {};
       const nextLayout = ns.getLayoutForViewport(this.renderer.cssW, this.renderer.cssH);
       const changed = !this.layout || this.layout.mode !== nextLayout.mode;
       this.layout = nextLayout;
+      document.body.dataset.layout = nextLayout.mode;
+
+      const metrics = ns.getTouchControlMetrics(this.renderer.cssW, this.renderer.cssH, nextLayout);
+      if (this.dom && this.dom.skillDock) {
+        if (metrics.skillDockBottom !== null) {
+          this.dom.skillDock.style.setProperty('--skill-dock-bottom', `${metrics.skillDockBottom}px`);
+        } else {
+          this.dom.skillDock.style.removeProperty('--skill-dock-bottom');
+        }
+      }
 
       this.smartBin.x = nextLayout.SMART_BIN.x;
       this.smartBin.y = nextLayout.SMART_BIN.y;
@@ -2474,7 +2485,10 @@ window.Ssudam = window.Ssudam || {};
         popups: this.popups,
         aimGuide: this._buildAimGuide(),
         hoverTarget,
-        touchOverlay: this.mode === 'PLAYING' ? this.input.getTouchOverlayState() : null,
+        touchOverlay:
+          this.mode === 'PLAYING'
+            ? this.input.getTouchOverlayState(this.layout.mode === 'portrait' || this.input.hasCoarsePointer)
+            : null,
       };
     }
   }

@@ -7,6 +7,10 @@ window.Ssudam = window.Ssudam || {};
       this.cb = callbacks || {};
 
       this.isTouchMode = false;
+      this.hasCoarsePointer = Boolean(
+        (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
+          (navigator.maxTouchPoints && navigator.maxTouchPoints > 0)
+      );
       this.paused = false;
 
       // Keyboard state
@@ -23,11 +27,11 @@ window.Ssudam = window.Ssudam || {};
 
       // Fixed Left Joystick (in canvas CSS pixels)
       this.leftTouchId = null;
-      this.joyOrigin = { x: 82, y: 400 };
-      this.joyCurrent = { x: 82, y: 400 };
-      this.joyOuterR = 48;
-      this.joyKnobR = 20;
-      this.joyDeadzone = 6;
+      this.joyOrigin = { x: 109, y: 740 };
+      this.joyCurrent = { x: 109, y: 740 };
+      this.joyOuterR = 62;
+      this.joyKnobR = 26;
+      this.joyDeadzone = 8;
 
       // Right Side: Tap = Grab, Swing (Drag >= 24px) & Release = Throw
       this.rightTouchId = null;
@@ -60,12 +64,9 @@ window.Ssudam = window.Ssudam || {};
       this.moveY = 0;
     }
 
-    getFixedJoystickCenter(cssW, cssH) {
-      const compact = cssW < 560;
-      return {
-        x: compact ? 62 : 92,
-        y: cssH - (compact ? 74 : 92),
-      };
+    getControlMetrics() {
+      const rect = this.canvas.getBoundingClientRect();
+      return ns.getTouchControlMetrics(rect.width || 390, rect.height || 844);
     }
 
     clientToCanvasCss(clientX, clientY) {
@@ -183,6 +184,14 @@ window.Ssudam = window.Ssudam || {};
         }
       });
 
+      window.addEventListener(
+        'touchstart',
+        () => {
+          this.isTouchMode = true;
+        },
+        { passive: true }
+      );
+
       // Multi-touch mobile & tablet support (Fixed Joystick + Swing-Only Throw)
       this.canvas.addEventListener(
         'touchstart',
@@ -193,8 +202,10 @@ window.Ssudam = window.Ssudam || {};
           if (this.paused) return;
 
           const rect = this.canvas.getBoundingClientRect();
-          const midX = rect.left + rect.width * 0.44;
-          const fixedCenter = this.getFixedJoystickCenter(rect.width, rect.height);
+          const metrics = ns.getTouchControlMetrics(rect.width, rect.height);
+          const midX = rect.left + metrics.midSplitX;
+          this.joyOuterR = metrics.joyOuterR;
+          this.joyKnobR = metrics.joyKnobR;
 
           for (let i = 0; i < e.changedTouches.length; i++) {
             const t = e.changedTouches[i];
@@ -202,7 +213,7 @@ window.Ssudam = window.Ssudam || {};
 
             if (t.clientX < midX && this.leftTouchId === null) {
               this.leftTouchId = t.identifier;
-              this.joyOrigin = fixedCenter;
+              this.joyOrigin = { x: metrics.joyX, y: metrics.joyY };
               this.joyCurrent = { x: cssPos.x, y: cssPos.y };
               this._recomputeTouchMove();
             } else if (this.rightTouchId === null) {
@@ -348,16 +359,19 @@ window.Ssudam = window.Ssudam || {};
       };
     }
 
-    getTouchOverlayState() {
-      if (!this.isTouchMode) return null;
-      const rect = this.canvas.getBoundingClientRect();
-      const fixedCenter = this.getFixedJoystickCenter(rect.width || 390, rect.height || 844);
+    getTouchOverlayState(forceShow = false) {
+      if (!this.isTouchMode && !forceShow) return null;
+      const metrics = this.getControlMetrics();
       return {
+        mode: metrics.mode,
+        deckTopCss: metrics.deckTopCss,
         leftActive: this.leftTouchId !== null,
-        joyOrigin: this.leftTouchId !== null ? this.joyOrigin : fixedCenter,
-        joyCurrent: this.leftTouchId !== null ? this.joyCurrent : fixedCenter,
-        joyOuterR: this.joyOuterR,
-        joyKnobR: this.joyKnobR,
+        joyOrigin: this.leftTouchId !== null ? this.joyOrigin : { x: metrics.joyX, y: metrics.joyY },
+        joyCurrent: this.leftTouchId !== null ? this.joyCurrent : { x: metrics.joyX, y: metrics.joyY },
+        joyOuterR: metrics.joyOuterR,
+        joyKnobR: metrics.joyKnobR,
+        actCenter: { x: metrics.actX, y: metrics.actY },
+        actR: metrics.actR,
         rightActive: this.rightTouchId !== null,
         rightDragged: this.rightDragged,
         rightStart: this.rightStart,

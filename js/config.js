@@ -14,11 +14,12 @@ window.Ssudam = window.Ssudam || {};
   const PORTRAIT_LAYOUT = {
     mode: 'portrait',
     WORLD_W: 720,
-    WORLD_H: 1360,
-    PLAZA: { left: 46, right: 674, top: 234, bottom: 1090 },
+    WORLD_H: 1320,
+    PLAZA: { left: 42, right: 678, top: 234, bottom: 892 },
+    DECK_TOP: 928,
     SMART_BIN: { x: 215, y: 198, width: 164, height: 74, autoRadius: 112, magnetRadius: 90 },
     HUMAN_BIN: { x: 510, y: 198, width: 140, height: 80, autoRadius: 112, magnetRadius: 92 },
-    ROBOT_START: { x: 360, y: 690 },
+    ROBOT_START: { x: 360, y: 590 },
   };
 
   const WORLD_W = LANDSCAPE_LAYOUT.WORLD_W;
@@ -414,7 +415,7 @@ window.Ssudam = window.Ssudam || {};
     const h = layout.WORLD_H;
 
     if (layout.mode === 'portrait') {
-      const topReserve = Math.min(92, safeH * 0.12);
+      const topReserve = Math.min(138, safeH * 0.19);
       const scale = Math.min(safeW / w, Math.max(100, safeH - topReserve) / h);
       const drawnW = w * scale;
       const drawnH = h * scale;
@@ -431,8 +432,72 @@ window.Ssudam = window.Ssudam || {};
     return { scale, offsetX, offsetY, cssW: safeW, cssH: safeH, layout };
   }
 
+  function getTouchControlMetrics(cssW, cssH, layoutOverride = null) {
+    const safeW = Math.max(1, cssW);
+    const safeH = Math.max(1, cssH);
+    const layout = layoutOverride || getLayoutForViewport(safeW, safeH);
+
+    if (layout.mode === 'portrait') {
+      const vp = getViewportTransform(safeW, safeH, layout);
+      const deckWorldY = layout.DECK_TOP || 928;
+      const deckTopCss = vp.offsetY + deckWorldY * vp.scale;
+      const isShort = safeH <= 700;
+      const skillEstH = isShort ? 44 : 54;
+      const skillTopGap = isShort ? 5 : 8;
+      const skillBottomCss = deckTopCss + skillTopGap + skillEstH;
+      const skillDockBottom = Math.max(96, Math.round(safeH - skillBottomCss));
+
+      const lowerTop = skillBottomCss + (isShort ? 4 : 6);
+      const lowerBottom = safeH - (isShort ? 4 : 8);
+      const lowerH = Math.max(88, lowerBottom - lowerTop);
+      const padY = Math.round((lowerTop + lowerBottom) * 0.5);
+
+      const joyOuterR = Math.round(Math.max(46, Math.min(68, Math.min(lowerH * 0.45, safeW * 0.165))));
+      const joyKnobR = Math.round(joyOuterR * 0.43);
+      const actR = Math.max(44, joyOuterR - 2);
+      const joyX = Math.round(safeW * 0.28);
+      const actX = Math.round(safeW * 0.72);
+
+      return {
+        mode: 'portrait',
+        deckTopCss,
+        skillDockBottom,
+        joyX,
+        joyY: padY,
+        joyOuterR,
+        joyKnobR,
+        actX,
+        actY: padY,
+        actR,
+        midSplitX: safeW * 0.5,
+      };
+    }
+
+    const joyOuterR = safeW < 900 ? 58 : 66;
+    const joyKnobR = Math.round(joyOuterR * 0.43);
+    const actR = safeW < 900 ? 55 : 62;
+    const joyX = Math.round(Math.max(joyOuterR + 36, Math.min(safeW * 0.21, safeW * 0.5 - 245)));
+    const actX = Math.round(safeW - joyX);
+    const padY = Math.round(safeH - (joyOuterR + 34));
+
+    return {
+      mode: 'landscape',
+      deckTopCss: null,
+      skillDockBottom: null,
+      joyX,
+      joyY: padY,
+      joyOuterR,
+      joyKnobR,
+      actX,
+      actY: padY,
+      actR,
+      midSplitX: safeW * 0.5,
+    };
+  }
+
   ns.getLayoutForViewport = getLayoutForViewport;
   ns.getViewportTransform = getViewportTransform;
+  ns.getTouchControlMetrics = getTouchControlMetrics;
 
   ns.CONFIG = {
     LANDSCAPE_LAYOUT,
