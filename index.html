@@ -24,8 +24,8 @@
     <!-- 상단 HUD -->
     <header id="hud" class="hud hidden" aria-label="게임 상태 표시줄">
       <div class="hud-left">
-        <div class="hud-pill hud-stage" id="hud-stage">🌅 출근길 수원역</div>
-        <div class="hud-pill hud-timer" id="hud-timer">01:05</div>
+        <div class="hud-pill hud-stage" id="hud-stage">☀️ 1. 한가한 낮</div>
+        <div class="hud-pill hud-timer" id="hud-timer">00:55</div>
       </div>
 
       <div class="hud-center">
@@ -63,6 +63,28 @@
       </div>
     </header>
 
+    <!-- 하단 중앙 스킬 도크 -->
+    <div id="skill-dock" class="skill-dock hidden" aria-label="스킬 버튼">
+      <button id="btn-skill-vacuum" class="skill-btn vacuum-btn" type="button">
+        <span class="skill-hotkey">Q</span>
+        <span class="skill-icon">🌀</span>
+        <span class="skill-info">
+          <strong>청소기</strong>
+          <small id="vacuum-count">2 / 3</small>
+        </span>
+        <span class="skill-active-bar" id="vacuum-active-bar"></span>
+      </button>
+
+      <button id="btn-skill-helper" class="skill-btn helper-btn" type="button">
+        <span class="skill-hotkey">E</span>
+        <span class="skill-icon">🧹</span>
+        <span class="skill-info">
+          <strong>조력자</strong>
+          <small id="helper-count">1 / 2</small>
+        </span>
+      </button>
+    </div>
+
     <!-- 인게임 토스트 배너 -->
     <div id="toast-banner" class="toast-banner hidden" role="status" aria-live="polite"></div>
 
@@ -70,71 +92,152 @@
     <section id="overlay-title" class="overlay">
       <div class="panel title-panel">
         <div class="title-hero">
-          <div class="hero-badge">수원역 도시환경 자율주행 청소 로봇</div>
+          <div class="hero-badge">수원역 도시환경 자율주행 청소 로봇 · 8단계 캠페인</div>
           <h1 class="game-title">
             <span class="title-main">쓰담쓰담</span>
             <span class="title-sub">수원역 대청소 🌿</span>
           </h1>
           <p class="title-desc">
-            다관절 로봇팔로 쓰레기를 수거하고, 무단투기자를 잡아
-            <strong>「인간쓰레기통」</strong>에 처넣거나 <strong>광장 밖으로 홈런</strong> 날려버리세요!
+            한가한 낮부터 할로윈 자정까지 <strong>8단계</strong>를 순차 해금하세요!
+            <strong>🌀청소기</strong>와 <strong>🧹환경미화원</strong> 스킬을 활용해 수원역을 지켜주세요.
           </p>
         </div>
 
-        <div class="stage-grid">
+        <div class="stage-grid stage-grid-8">
           <button class="stage-card" type="button" data-stage="stage1">
             <div class="stage-card-head">
-              <span class="stage-icon">🌅</span>
+              <span class="stage-icon">☀️</span>
               <span class="stage-tag">STAGE 1</span>
             </div>
-            <h3>출근길 수원역</h3>
-            <p>여유로운 아침 광장, 조작에 익숙해지세요 (65초)</p>
-            <div class="stage-best" id="best-stage1">최고: 0점</div>
+            <h3>한가한 낮</h3>
+            <p>휴지뭉치·낙엽·캔 등 가벼운 오후 청소 (55초)</p>
+            <div class="stage-meta">
+              <span class="stage-best" id="best-stage1">최고: 0점</span>
+              <span class="stage-stars" id="stars-stage1">☆☆☆</span>
+            </div>
+            <div class="stage-lock hidden">🔒 이전 단계 클리어 필요</div>
           </button>
 
           <button class="stage-card" type="button" data-stage="stage2">
             <div class="stage-card-head">
-              <span class="stage-icon">☀️</span>
+              <span class="stage-icon">💼</span>
               <span class="stage-tag">STAGE 2</span>
             </div>
-            <h3>점심시간 수원역</h3>
-            <p>유동인구 폭증 &amp; 빠른 질주형 투기자 등장! (75초)</p>
-            <div class="stage-best" id="best-stage2">최고: 0점</div>
+            <h3>출근시간</h3>
+            <p>정장 직장인 인파! 커피컵·넥타이·서류 수거 (60초)</p>
+            <div class="stage-meta">
+              <span class="stage-best" id="best-stage2">최고: 0점</span>
+              <span class="stage-stars" id="stars-stage2">☆☆☆</span>
+            </div>
+            <div class="stage-lock hidden">🔒 1단계 클리어 필요</div>
           </button>
 
           <button class="stage-card" type="button" data-stage="stage3">
             <div class="stage-card-head">
-              <span class="stage-icon">🌃</span>
+              <span class="stage-icon">🧳</span>
               <span class="stage-tag">STAGE 3</span>
             </div>
-            <h3>불금 야간 수원역</h3>
-            <p>네온 불빛 아래 대형 투기 빌런 출현! (90초)</p>
-            <div class="stage-best" id="best-stage3">최고: 0점</div>
+            <h3>여행 가는 사람들</h3>
+            <p>모자·기차표 + ✨여권(2배 보너스!) 등장 (65초)</p>
+            <div class="stage-meta">
+              <span class="stage-best" id="best-stage3">최고: 0점</span>
+              <span class="stage-stars" id="stars-stage3">☆☆☆</span>
+            </div>
+            <div class="stage-lock hidden">🔒 2단계 클리어 필요</div>
           </button>
 
-          <button class="stage-card endless-card" type="button" data-stage="endless">
+          <button class="stage-card" type="button" data-stage="stage4">
             <div class="stage-card-head">
-              <span class="stage-icon">♾️</span>
-              <span class="stage-tag endless-tag">ENDLESS</span>
+              <span class="stage-icon">🌇</span>
+              <span class="stage-tag">STAGE 4</span>
             </div>
-            <h3>24시간 무한가동</h3>
-            <p>아침→낮→불금 순환! 고장 날 때까지 최고점수 도전</p>
-            <div class="stage-best" id="best-endless">최고: 0점</div>
+            <h3>퇴근시간 (노을)</h3>
+            <p>주황빛 노을 속 지친 퇴근길·박스·봉투 급증 (70초)</p>
+            <div class="stage-meta">
+              <span class="stage-best" id="best-stage4">최고: 0점</span>
+              <span class="stage-stars" id="stars-stage4">☆☆☆</span>
+            </div>
+            <div class="stage-lock hidden">🔒 3단계 클리어 필요</div>
+          </button>
+
+          <button class="stage-card" type="button" data-stage="stage5">
+            <div class="stage-card-head">
+              <span class="stage-icon">🌆</span>
+              <span class="stage-tag">STAGE 5</span>
+            </div>
+            <h3>술마시러 가는 길</h3>
+            <p>어스름한 황혼! 형광복 조력자 · ✨신분증(2배!) (75초)</p>
+            <div class="stage-meta">
+              <span class="stage-best" id="best-stage5">최고: 0점</span>
+              <span class="stage-stars" id="stars-stage5">☆☆☆</span>
+            </div>
+            <div class="stage-lock hidden">🔒 4단계 클리어 필요</div>
+          </button>
+
+          <button class="stage-card" type="button" data-stage="stage6">
+            <div class="stage-card-head">
+              <span class="stage-icon">🍻</span>
+              <span class="stage-tag">STAGE 6</span>
+            </div>
+            <h3>술취해서 텐션 UP</h3>
+            <p>머리띠 넥타이 취객 아저씨 · 미끄러운 토사물 주의! (80초)</p>
+            <div class="stage-meta">
+              <span class="stage-best" id="best-stage6">최고: 0점</span>
+              <span class="stage-stars" id="stars-stage6">☆☆☆</span>
+            </div>
+            <div class="stage-lock hidden">🔒 5단계 클리어 필요</div>
+          </button>
+
+          <button class="stage-card" type="button" data-stage="stage7">
+            <div class="stage-card-head">
+              <span class="stage-icon">🎆</span>
+              <span class="stage-tag">STAGE 7</span>
+            </div>
+            <h3>불금 수원역</h3>
+            <p>네온 불빛 &amp; 멋부린 인파! 전단지·쇼핑백 러시 (85초)</p>
+            <div class="stage-meta">
+              <span class="stage-best" id="best-stage7">최고: 0점</span>
+              <span class="stage-stars" id="stars-stage7">☆☆☆</span>
+            </div>
+            <div class="stage-lock hidden">🔒 6단계 클리어 필요</div>
+          </button>
+
+          <button class="stage-card" type="button" data-stage="stage8">
+            <div class="stage-card-head">
+              <span class="stage-icon">🎃</span>
+              <span class="stage-tag">FINAL 8</span>
+            </div>
+            <h3>할로윈 파티</h3>
+            <p>보름달·박쥐! 투명 유령 &amp; ✨미니 호박(2배!) (95초)</p>
+            <div class="stage-meta">
+              <span class="stage-best" id="best-stage8">최고: 0점</span>
+              <span class="stage-stars" id="stars-stage8">☆☆☆</span>
+            </div>
+            <div class="stage-lock hidden">🔒 7단계 클리어 필요</div>
           </button>
         </div>
+
+        <button class="stage-card endless-card endless-wide" type="button" data-stage="endless">
+          <div class="stage-card-head">
+            <span class="stage-icon">♾️ 24시간 무한가동 모드 (항상 열림)</span>
+            <span class="stage-tag endless-tag">ENDLESS</span>
+          </div>
+          <p>1~8단계의 낮→노을→야간→할로윈 테마가 끝없이 순환! 로봇이 고장 날 때까지 최고점수 도전</p>
+          <div class="stage-best" id="best-endless">최고: 0점</div>
+        </button>
 
         <div class="controls-strip">
           <div class="ctrl-item">
             <strong>💻 PC</strong>
-            <span><code>WASD/방향키</code> 이동 · <code>마우스</code> 조준 · <code>클릭/Space</code> 집기·던지기(꾹 누르면 파워 투척)</span>
+            <span><code>WASD/방향키</code> 이동 · <code>마우스</code> 조준 · <code>클릭/Space</code> 집기·던지기 · <code>Q</code> 청소기 · <code>E</code> 조력자</span>
           </div>
           <div class="ctrl-item">
             <strong>📱 모바일·태블릿</strong>
-            <span><code>왼손</code> 드래그 이동 · <code>오른손 탭</code> 자동 집기/던지기 · <code>드래그</code> 조준 투척</span>
+            <span><code>왼손</code> 드래그 이동 · <code>오른손 탭/드래그</code> 집기·던지기 · <code>하단 버튼</code> 스킬 사용</span>
           </div>
           <div class="ctrl-item warn-tip">
-            <strong>⚠️ 주의</strong>
-            <span>쓰레기가 <strong>100%</strong> 쌓이면 쓰담쓰담 과부하 고장! 선량한 시민은 잡지 마세요!</span>
+            <strong>💢 주의!</strong>
+            <span>일반시민을 잘못 잡으면 <strong>화를 내며 쓰레기를 던지고</strong> 도망갑니다! (잡아서 복수 가능!)</span>
           </div>
         </div>
       </div>
@@ -160,6 +263,7 @@
         <h2 id="clear-title">수원역 청결 수호 완료!</h2>
         <div class="stars-row" id="clear-stars">★★★</div>
         <div id="clear-new-record" class="record-badge hidden">🏆 NEW RECORD!</div>
+        <div id="clear-unlock-badge" class="unlock-badge hidden">🔓 다음 스테이지 해금!</div>
 
         <div class="stats-grid">
           <div class="stat-item">

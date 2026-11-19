@@ -1,10 +1,27 @@
 window.Ssudam = window.Ssudam || {};
 
 (function (ns) {
-  const { WORLD_W, WORLD_H, PLAZA, SMART_BIN, HUMAN_BIN, ROBOT, TRASH_TYPES, STAGES, SCORE, COMBO, FEVER, CULPRIT_BUBBLES } = ns.CONFIG;
+  const {
+    WORLD_W,
+    PLAZA,
+    SMART_BIN,
+    HUMAN_BIN,
+    ROBOT,
+    TRASH_TYPES,
+    STAGE_ORDER,
+    STAGES,
+    SKILLS,
+    SCORE,
+    COMBO,
+    FEVER,
+    CULPRIT_BUBBLES,
+    DRUNK_BUBBLES,
+    ANGRY_BUBBLES,
+  } = ns.CONFIG;
 
   const SHIRT_COLORS = ['#3b82f6', '#ec4899', '#8b5cf6', '#14b8a6', '#f97316', '#64748b', '#ef4444'];
   const HAIR_COLORS = ['#1e293b', '#451a03', '#78350f', '#334155', '#713f12'];
+  const HALLOWEEN_VARIANTS = ['witch', 'pumpkin_head', 'ghost', 'dracula'];
 
   function clamp(v, min, max) {
     return Math.max(min, Math.min(max, v));
@@ -45,6 +62,12 @@ window.Ssudam = window.Ssudam || {};
         hudFeverFill: document.getElementById('hud-fever-fill'),
         btnMute: document.getElementById('btn-mute'),
         btnPause: document.getElementById('btn-pause'),
+        skillDock: document.getElementById('skill-dock'),
+        btnVacuum: document.getElementById('btn-skill-vacuum'),
+        vacuumCount: document.getElementById('vacuum-count'),
+        vacuumActiveBar: document.getElementById('vacuum-active-bar'),
+        btnHelper: document.getElementById('btn-skill-helper'),
+        helperCount: document.getElementById('helper-count'),
         toast: document.getElementById('toast-banner'),
         overlayTitle: document.getElementById('overlay-title'),
         overlayPause: document.getElementById('overlay-pause'),
@@ -57,6 +80,7 @@ window.Ssudam = window.Ssudam || {};
         clearCulprits: document.getElementById('clear-culprits'),
         clearMaxCombo: document.getElementById('clear-max-combo'),
         clearNewRecord: document.getElementById('clear-new-record'),
+        clearUnlockBadge: document.getElementById('clear-unlock-badge'),
         btnNextStage: document.getElementById('btn-next-stage'),
         btnRetryClear: document.getElementById('btn-retry-clear'),
         btnMenuClear: document.getElementById('btn-menu-clear'),
@@ -73,9 +97,6 @@ window.Ssudam = window.Ssudam || {};
         btnResume: document.getElementById('btn-resume'),
         btnRestartPause: document.getElementById('btn-restart-pause'),
         btnMenuPause: document.getElementById('btn-menu-pause'),
-        bestStage1: document.getElementById('best-stage1'),
-        bestStage2: document.getElementById('best-stage2'),
-        bestStage3: document.getElementById('best-stage3'),
         bestEndless: document.getElementById('best-endless'),
       };
 
@@ -83,6 +104,8 @@ window.Ssudam = window.Ssudam || {};
         isHolding: () => this.robot.held !== null,
         onUnlockAudio: () => this.audio.unlock(),
         onTogglePause: () => this.togglePause(),
+        onUseVacuum: () => this.activateVacuum(),
+        onUseHelper: () => this.activateHelper(),
         onPcGrab: (wx, wy) => this.handleGrabAction(wx, wy, true),
         onPcThrow: (wx, wy, power) => this.handlePcThrow(wx, wy, power),
         onTouchActionStart: () => this.handleTouchActionStart(),
@@ -107,6 +130,13 @@ window.Ssudam = window.Ssudam || {};
       this.feverActive = false;
       this.feverTimer = 0;
 
+      // Skills state
+      this.vacuumCharges = SKILLS.vacuumStart;
+      this.vacuumTimer = 0;
+      this.helperCharges = SKILLS.helperStart;
+      this.helpers = [];
+      this.helperDustTimer = 0;
+
       this.overloadRatio = 0;
       this.breakdownTimer = 0;
       this.smokeTimer = 0;
@@ -116,8 +146,24 @@ window.Ssudam = window.Ssudam || {};
       this.citizenSpawnTimer = 1.0;
 
       this.shake = { x: 0, y: 0, trauma: 0 };
-      this.smartBin = { x: SMART_BIN.x, y: SMART_BIN.y, width: SMART_BIN.width, height: SMART_BIN.height, bounce: 0, flashIndex: 0, flashTimer: 0 };
-      this.humanBin = { x: HUMAN_BIN.x, y: HUMAN_BIN.y, width: HUMAN_BIN.width, height: HUMAN_BIN.height, bounce: 0, lidOpen: 0, slamTimer: 0 };
+      this.smartBin = {
+        x: SMART_BIN.x,
+        y: SMART_BIN.y,
+        width: SMART_BIN.width,
+        height: SMART_BIN.height,
+        bounce: 0,
+        flashIndex: 0,
+        flashTimer: 0,
+      };
+      this.humanBin = {
+        x: HUMAN_BIN.x,
+        y: HUMAN_BIN.y,
+        width: HUMAN_BIN.width,
+        height: HUMAN_BIN.height,
+        bounce: 0,
+        lidOpen: 0,
+        slamTimer: 0,
+      };
 
       this.robot = this._createRobot();
       this.trashes = [];
@@ -156,6 +202,11 @@ window.Ssudam = window.Ssudam || {};
         reachRadius: ROBOT.armReach,
         held: null,
         innocentDropTimer: 0,
+        stunTimer: 0,
+        slipTimer: 0,
+        slipCooldown: 0,
+        slipVx: 0,
+        slipVy: 0,
       };
     }
 
@@ -163,8 +214,10 @@ window.Ssudam = window.Ssudam || {};
       const stageCards = document.querySelectorAll('.stage-card[data-stage]');
       stageCards.forEach((btn) => {
         btn.addEventListener('click', () => {
+          const sid = btn.dataset.stage;
+          if (btn.classList.contains('locked') || btn.disabled) return;
           this.audio.unlock();
-          this.startStage(btn.dataset.stage);
+          this.startStage(sid);
         });
       });
 
@@ -188,27 +241,75 @@ window.Ssudam = window.Ssudam || {};
 
       this.dom.btnRetryGo.addEventListener('click', () => this.startStage(this.currentStageId));
       this.dom.btnMenuGo.addEventListener('click', () => this.returnToTitle());
+
+      // Skill buttons (prevent touch propagation to canvas)
+      this.dom.btnVacuum.addEventListener(
+        'touchstart',
+        (e) => {
+          e.stopPropagation();
+        },
+        { passive: true }
+      );
+      this.dom.btnHelper.addEventListener(
+        'touchstart',
+        (e) => {
+          e.stopPropagation();
+        },
+        { passive: true }
+      );
+      this.dom.btnVacuum.addEventListener('click', () => {
+        this.audio.unlock();
+        this.activateVacuum();
+      });
+      this.dom.btnHelper.addEventListener('click', () => {
+        this.audio.unlock();
+        this.activateHelper();
+      });
     }
 
     _refreshTitleScores() {
-      const scores = ns.CONFIG.loadScores();
-      const fmt = (id) => {
-        const rec = scores[id];
-        if (!rec || !rec.bestScore) return '최고: 0점';
-        if (id === 'endless' && rec.bestTime) {
-          return `최고: ${rec.bestScore.toLocaleString()}점 (${formatTime(rec.bestTime)})`;
+      const progress = ns.CONFIG.loadProgress();
+      const unlocked = progress.unlockedStage || 1;
+
+      STAGE_ORDER.forEach((sid) => {
+        const cfg = STAGES[sid];
+        const card = document.querySelector(`.stage-card[data-stage="${sid}"]`);
+        const bestEl = document.getElementById(`best-${sid}`);
+        const starsEl = document.getElementById(`stars-${sid}`);
+        const lockEl = card ? card.querySelector('.stage-lock') : null;
+        const rec = progress.stages[sid] || {};
+        const isLocked = cfg.stageNum > unlocked;
+
+        if (card) {
+          card.classList.toggle('locked', isLocked);
+          card.disabled = isLocked;
         }
-        return `최고: ${rec.bestScore.toLocaleString()}점`;
-      };
-      this.dom.bestStage1.textContent = fmt('stage1');
-      this.dom.bestStage2.textContent = fmt('stage2');
-      this.dom.bestStage3.textContent = fmt('stage3');
-      this.dom.bestEndless.textContent = fmt('endless');
+        if (lockEl) {
+          lockEl.classList.toggle('hidden', !isLocked);
+        }
+        if (bestEl) {
+          bestEl.textContent = rec.bestScore ? `최고: ${rec.bestScore.toLocaleString()}점` : '최고: 0점';
+        }
+        if (starsEl) {
+          const st = rec.bestStars || 0;
+          starsEl.textContent = '★'.repeat(st) + '☆'.repeat(3 - st);
+        }
+      });
+
+      const endRec = progress.stages.endless || {};
+      if (!endRec.bestScore) {
+        this.dom.bestEndless.textContent = '최고: 0점';
+      } else if (endRec.bestTime) {
+        this.dom.bestEndless.textContent = `최고: ${endRec.bestScore.toLocaleString()}점 (${formatTime(endRec.bestTime)})`;
+      } else {
+        this.dom.bestEndless.textContent = `최고: ${endRec.bestScore.toLocaleString()}점`;
+      }
     }
 
     _seedIdleScene() {
       this.trashes = [];
       this.people = [];
+      this.helpers = [];
       for (let i = 0; i < 5; i++) {
         this._spawnCitizen(true);
       }
@@ -226,6 +327,7 @@ window.Ssudam = window.Ssudam || {};
       this.input.setPaused(true);
       this._hideAllOverlays();
       this.dom.hud.classList.add('hidden');
+      this.dom.skillDock.classList.add('hidden');
       this.dom.toast.classList.add('hidden');
       this.dom.overlayTitle.classList.remove('hidden');
       this.robot = this._createRobot();
@@ -237,6 +339,11 @@ window.Ssudam = window.Ssudam || {};
 
     startStage(stageId) {
       const stageCfg = STAGES[stageId] || STAGES.stage1;
+      const progress = ns.CONFIG.loadProgress();
+      if (!stageCfg.endless && stageCfg.stageNum > progress.unlockedStage) {
+        return;
+      }
+
       this.currentStageId = stageCfg.id;
       this.stage = stageCfg;
       this.mode = 'PLAYING';
@@ -245,6 +352,7 @@ window.Ssudam = window.Ssudam || {};
 
       this._hideAllOverlays();
       this.dom.hud.classList.remove('hidden');
+      this.dom.skillDock.classList.remove('hidden');
 
       this.elapsed = 0;
       this.score = 0;
@@ -256,6 +364,13 @@ window.Ssudam = window.Ssudam || {};
       this.feverGauge = 0;
       this.feverActive = false;
       this.feverTimer = 0;
+
+      this.vacuumCharges = SKILLS.vacuumStart;
+      this.vacuumTimer = 0;
+      this.helperCharges = SKILLS.helperStart;
+      this.helpers = [];
+      this.helperDustTimer = 0;
+
       this.overloadRatio = 0;
       this.breakdownTimer = 0;
       this.shake.trauma = 0;
@@ -272,18 +387,17 @@ window.Ssudam = window.Ssudam || {};
       this.humanBin.lidOpen = 0;
       this.humanBin.slamTimer = 0;
 
-      // Initial gentle spawn: start with minimal litterers + a couple of innocent citizens
       for (let i = 0; i < this.stage.startLitterers; i++) {
         this._spawnLitterer(i === 0);
       }
       for (let i = 0; i < Math.min(3, this.stage.maxCitizens); i++) {
         this._spawnCitizen(true);
       }
-      this.littererSpawnTimer = 2.4;
+      this.littererSpawnTimer = 2.1;
       this.citizenSpawnTimer = 1.6;
 
       this.dom.hudStage.textContent = this.stage.name;
-      this._showToast(this.stage.introBanner, '', 2.6);
+      this._showToast(this.stage.introBanner, '', 2.8);
       this._syncHud();
     }
 
@@ -303,6 +417,73 @@ window.Ssudam = window.Ssudam || {};
       this.dom.toast.textContent = text;
       this.dom.toast.className = `toast-banner ${variant}`.trim();
       this.toastTimer = duration;
+    }
+
+    _getCurrentStageContext() {
+      if (!this.stage.endless) {
+        return {
+          costume: this.stage.costume,
+          trashPool: this.stage.trashPool,
+          isNight: this.stage.isNight,
+          rareWeight: this.stage.rareWeight || 0,
+        };
+      }
+      // Endless smoothly cycles through Stages 1..8 every 28s
+      const idx = Math.floor(this.elapsed / 28) % STAGE_ORDER.length;
+      const sub = STAGES[STAGE_ORDER[idx]];
+      return {
+        costume: sub.costume,
+        trashPool: sub.trashPool,
+        isNight: sub.isNight,
+        rareWeight: sub.rareWeight || 0.14,
+      };
+    }
+
+    _getCurrentFeverMax() {
+      if (!this.stage.endless) {
+        return this.stage.feverMaxGauge || 100;
+      }
+      return Math.round(115 + Math.min(1, this.elapsed / 240) * 125);
+    }
+
+    activateVacuum() {
+      if (this.mode !== 'PLAYING' || this.vacuumCharges <= 0 || this.vacuumTimer > 0) return;
+      this.vacuumCharges -= 1;
+      this.vacuumTimer = SKILLS.vacuumDuration;
+      this.audio.vacuumStart();
+      this._showToast('🌀 청소기 스킬 가동! (5초간 주변 쓰레기 자동 흡입)', 'skill', 2.0);
+      this._spawnPopup(this.robot.x, this.robot.y - 62, '🌀 청소기 ON!', '#38bdf8', 1.15);
+      this._syncHud();
+    }
+
+    activateHelper() {
+      if (this.mode !== 'PLAYING' || this.helperCharges <= 0 || this.helpers.length > 0) return;
+      this.helperCharges -= 1;
+      this.audio.helperSweep();
+
+      const count = SKILLS.helperCount;
+      const topY = PLAZA.top + 38;
+      const botY = PLAZA.bottom - 24;
+      const stepY = (botY - topY) / Math.max(1, count - 1);
+
+      this.helpers = [];
+      for (let i = 0; i < count; i++) {
+        this.helpers.push({
+          rowIdx: i,
+          x: PLAZA.right + 56,
+          y: topY + i * stepY,
+        });
+      }
+
+      const ctxInfo = this._getCurrentStageContext();
+      this._showToast(
+        ctxInfo.isNight
+          ? '🧹 야간 환경미화원 출동! (형광복 싸리빗 대청소!)'
+          : '🧹 환경미화원 출동! (주황복 싸리빗 싹쓸이!)',
+        'skill',
+        2.3
+      );
+      this._syncHud();
     }
 
     _loop(now) {
@@ -354,13 +535,11 @@ window.Ssudam = window.Ssudam || {};
         }
       }
 
-      // Check stage clear timer
       if (!this.stage.endless && this.elapsed >= this.stage.duration) {
         this._triggerStageClear();
         return;
       }
 
-      // Combo & Fever timers
       if (this.comboCount > 0) {
         this.comboTimer -= dt;
         if (this.comboTimer <= 0) {
@@ -368,16 +547,27 @@ window.Ssudam = window.Ssudam || {};
         }
       }
 
+      const feverMax = this._getCurrentFeverMax();
       if (this.feverActive) {
         this.feverTimer -= dt;
-        this.feverGauge = Math.max(0, (this.feverTimer / FEVER.durationSec) * FEVER.maxGauge);
+        this.feverGauge = Math.max(0, (this.feverTimer / FEVER.durationSec) * feverMax);
         if (this.feverTimer <= 0) {
           this.feverActive = false;
           this.feverGauge = 0;
         }
       }
 
-      // Bins animation decay
+      // Vacuum countdown & suction
+      if (this.vacuumTimer > 0) {
+        this.vacuumTimer = Math.max(0, this.vacuumTimer - dt);
+        this._updateVacuumSuction(dt);
+      }
+
+      // Helper sweepers update
+      if (this.helpers.length > 0) {
+        this._updateHelpers(dt);
+      }
+
       this.smartBin.bounce = Math.max(0, this.smartBin.bounce - dt * 5);
       this.smartBin.flashTimer = Math.max(0, this.smartBin.flashTimer - dt);
       this.humanBin.bounce = Math.max(0, this.humanBin.bounce - dt * 5);
@@ -389,44 +579,141 @@ window.Ssudam = window.Ssudam || {};
       const wantLidOpen = holdingCulprit && distHuman < 280 ? 1 : 0;
       this.humanBin.lidOpen += (wantLidOpen - this.humanBin.lidOpen) * Math.min(1, dt * 10);
 
-      // Update robot movement, arm, auto-deposit, and held innocent check
       this._updateRobot(dt);
-
-      // Spawner director (gradual ramp + hard cap)
       this._updateSpawners(dt);
-
-      // Update trashes & people
       this._updateTrashes(dt);
       this._updatePeople(dt);
-
-      // Update particles, popups & screen shake
       this._updateParticlesAndPopups(dt);
-
-      // Check overload & breakdown threshold
       this._updateOverload(dt);
 
       this._syncHud();
+    }
+
+    _updateVacuumSuction(dt) {
+      const vacRad = this.feverActive ? SKILLS.vacuumFeverRadius : SKILLS.vacuumRadius;
+      for (let i = this.trashes.length - 1; i >= 0; i--) {
+        const tr = this.trashes[i];
+        if (tr.held || tr.isHostileToRobot) continue;
+        const dx = this.robot.x - tr.x;
+        const dy = this.robot.y - tr.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist <= vacRad) {
+          if (dist <= 42) {
+            this.trashes.splice(i, 1);
+            this.audio.vacuumSuck();
+            this._rewardTrash(tr, false, true);
+          } else {
+            const pullSpeed = 480;
+            tr.x += (dx / dist) * pullSpeed * dt;
+            tr.y += (dy / dist) * pullSpeed * dt;
+            tr.rot += 12 * dt;
+          }
+        }
+      }
+    }
+
+    _updateHelpers(dt) {
+      let sweepX = PLAZA.right + 100;
+      for (const h of this.helpers) {
+        h.x -= SKILLS.helperSpeed * dt;
+        sweepX = Math.min(sweepX, h.x);
+      }
+
+      // Emit dust & clean sparkles along broom line
+      this.helperDustTimer -= dt;
+      if (this.helperDustTimer <= 0) {
+        this.helperDustTimer = 0.06;
+        for (const h of this.helpers) {
+          this._spawnParticle(h.x - 24, h.y + 8, 6, '#d6d3d1', randRange(5, 8.5), 0.48, 'dust');
+          if (Math.random() < 0.45) {
+            this._spawnParticle(h.x - 22, h.y + 4, 14, '#fde047', 3.5, 0.38, 'confetti');
+          }
+        }
+      }
+
+      // Sweep all unheld trash passed by the broom line!
+      for (let i = this.trashes.length - 1; i >= 0; i--) {
+        const tr = this.trashes[i];
+        if (tr.held || tr.isHostileToRobot) continue;
+        if (tr.x >= sweepX - 30) {
+          this.trashes.splice(i, 1);
+          this._rewardTrashByHelper(tr);
+        }
+      }
+
+      // Finish sweep once past left boundary — ensure ZERO trash remains!
+      if (sweepX <= PLAZA.left - 72) {
+        for (let i = this.trashes.length - 1; i >= 0; i--) {
+          const tr = this.trashes[i];
+          if (tr.held || tr.isHostileToRobot) continue;
+          this.trashes.splice(i, 1);
+          this._rewardTrashByHelper(tr);
+        }
+        this.helpers = [];
+        this._spawnPopup(WORLD_W * 0.5, 340, '🧹 거리 대청소 완료!!', '#4ade80', 1.25);
+      }
+    }
+
+    _rewardTrashByHelper(tr) {
+      const def = TRASH_TYPES[tr.type] || TRASH_TYPES.bottle;
+      this.trashCleared += 1;
+      const base = def.isRare ? SCORE.trashAuto * 2 : SCORE.trashAuto;
+      const feverMul = this.feverActive ? 2 : 1;
+      const gained = base * feverMul;
+      this.score += gained;
+      this._burstConfetti(tr.x, tr.y, '#4ade80', 5);
     }
 
     _updateRobot(dt) {
       const r = this.robot;
       r.reachRadius = ROBOT.armReach * (this.feverActive ? ROBOT.feverReachMul : 1);
 
-      const moveSpeed = ROBOT.speed * (this.feverActive ? ROBOT.feverSpeedMul : 1);
-      r.vx = this.input.moveX * moveSpeed;
-      r.vy = this.input.moveY * moveSpeed;
+      if (r.stunTimer > 0) r.stunTimer -= dt;
+      if (r.slipTimer > 0) r.slipTimer -= dt;
+      if (r.slipCooldown > 0) r.slipCooldown -= dt;
+
+      let moveSpeed = ROBOT.speed * (this.feverActive ? ROBOT.feverSpeedMul : 1);
+      if (r.stunTimer > 0) moveSpeed *= 0.38;
+
+      if (r.slipTimer > 0) {
+        r.vx = r.slipVx;
+        r.vy = r.slipVy;
+        r.slipVx *= 0.94;
+        r.slipVy *= 0.94;
+      } else {
+        r.vx = this.input.moveX * moveSpeed;
+        r.vy = this.input.moveY * moveSpeed;
+      }
 
       r.x = clamp(r.x + r.vx * dt, PLAZA.left + 26, PLAZA.right - 26);
       r.y = clamp(r.y + r.vy * dt, PLAZA.top + 32, PLAZA.bottom - 24);
 
       const spd = Math.hypot(r.vx, r.vy);
-      if (spd > 10) {
+      if (spd > 10 && r.slipTimer <= 0) {
         r.facingX = r.vx / spd;
         r.facingY = r.vy / spd;
         r.wheelAngle += spd * dt * 0.09;
       }
 
-      // Blink & eye expression
+      // Stage 6 Vomit Slip Check!
+      if (this.vacuumTimer <= 0 && r.slipCooldown <= 0 && spd > 25) {
+        for (const tr of this.trashes) {
+          if (tr.held || tr.z > 6) continue;
+          const def = TRASH_TYPES[tr.type];
+          if (def && def.isSlippery && Math.hypot(r.x - tr.x, r.y - tr.y) <= 34) {
+            r.slipTimer = 0.55;
+            r.slipCooldown = 1.7;
+            r.slipVx = r.facingX * 390;
+            r.slipVy = r.facingY * 390;
+            r.eyeMode = 'oops';
+            r.eyeOverrideTimer = 0.7;
+            this.audio.slip();
+            this._spawnPopup(r.x, r.y - 54, '🤢 미끌!!', '#a3e635', 1.15);
+            break;
+          }
+        }
+      }
+
       r.blinkTimer -= dt;
       if (r.blinkTimer <= 0) {
         r.blink = !r.blink;
@@ -445,19 +732,32 @@ window.Ssudam = window.Ssudam || {};
         r.eyeMode = 'normal';
       }
 
-      // Innocent drop countdown
+      // Angry citizen drop & counter-throw!
       if (r.held && r.held.kind === 'person' && !r.held.entity.isCulprit) {
         r.innocentDropTimer -= dt;
         if (r.innocentDropTimer <= 0) {
           const person = r.held.entity;
           person.held = false;
-          person.x = clamp(r.x + 42, PLAZA.left + 30, PLAZA.right - 30);
-          person.y = clamp(r.y + 10, PLAZA.top + 35, PLAZA.bottom - 20);
+          person.x = clamp(r.x + (person.x >= r.x ? 54 : -54), PLAZA.left + 32, PLAZA.right - 32);
+          person.y = clamp(r.y + 12, PLAZA.top + 38, PLAZA.bottom - 24);
           r.held = null;
+
+          // Turn into angry culprit and throw trash at robot!
+          person.angry = true;
+          person.isCulprit = true;
+          person.role = 'litterer';
+          person.dropsRemaining = 0;
+          person.exiting = true;
+          person.targetX = person.x < WORLD_W * 0.5 ? PLAZA.left - 45 : PLAZA.right + 45;
+          person.targetY = randRange(PLAZA.top + 50, PLAZA.bottom - 50);
+          person.bubbleText = '받아라!! 💢';
+          person.bubbleTimer = 1.8;
+
+          this._throwHostileTrashAtRobot(person);
         }
       }
 
-      // Auto-deposit if robot drives close to matching bin while holding valid target
+      // Auto-deposit near bin
       if (r.held) {
         if (r.held.kind === 'trash') {
           const d = Math.hypot(r.x - SMART_BIN.x, r.y - (SMART_BIN.y + 30));
@@ -472,7 +772,7 @@ window.Ssudam = window.Ssudam || {};
         }
       }
 
-      // Smooth Robot Arm Hand Position
+      // Smooth IK hand tracking
       let targetHandX;
       let targetHandY;
       if (r.armStrikeTimer > 0) {
@@ -481,7 +781,6 @@ window.Ssudam = window.Ssudam || {};
         targetHandY = r.strikeY;
         r.gripperOpen = 0.2;
       } else if (r.held) {
-        // Hold securely near front-top of robot, leaning slightly toward aim
         const aimAngle = this.input.isTouchMode
           ? Math.atan2(r.facingY, r.facingX)
           : Math.atan2(this.input.aimWorldY - r.y, this.input.aimWorldX - r.x);
@@ -520,9 +819,43 @@ window.Ssudam = window.Ssudam || {};
       r.handY += (targetHandY - r.handY) * smooth;
     }
 
+    _throwHostileTrashAtRobot(person) {
+      const ctxInfo = this._getCurrentStageContext();
+      const nonRarePool = ctxInfo.trashPool.filter((id) => !TRASH_TYPES[id].isRare);
+      const chosenType = pickRandom(nonRarePool.length ? nonRarePool : ['can', 'bottle']);
+
+      const startX = person.x;
+      const startY = person.y - 10;
+      const flightTime = 0.36;
+      const vx = (this.robot.x - startX) / flightTime;
+      const vy = (this.robot.y - startY) / flightTime;
+
+      this.audio.angryThrow();
+      this._spawnPopup(person.x, person.y - 52, '💢 야! 받아라!!', '#ef4444', 1.1);
+
+      this.trashes.push({
+        id: this.nextId++,
+        type: chosenType,
+        x: startX,
+        y: startY,
+        z: 24,
+        vx,
+        vy,
+        vz: 260 * flightTime,
+        rot: 0,
+        vRot: 12,
+        age: 0,
+        thrown: true,
+        isHostileToRobot: true,
+        throwOriginX: startX,
+        throwOriginY: startY,
+        held: false,
+      });
+    }
+
     _updateSpawners(dt) {
       const progress = this.stage.endless
-        ? Math.min(1, this.elapsed / 180)
+        ? Math.min(1, this.elapsed / 200)
         : Math.min(1, this.elapsed / this.stage.duration);
 
       const effectiveMaxLitterers = this.stage.endless
@@ -593,17 +926,26 @@ window.Ssudam = window.Ssudam || {};
 
     _spawnLitterer(nearCenter = false) {
       const archetype = this._pickLittererArchetype();
+      const ctxInfo = this._getCurrentStageContext();
       const start = nearCenter
         ? { x: randRange(320, 960), y: randRange(300, 420) }
         : this._getSpawnEdgePoint(true);
 
-      const speed = archetype === 'runner' ? 148 : archetype === 'boss' ? 84 : 104;
-      const dropsRemaining = archetype === 'boss' ? 3 : Math.random() < 0.45 ? 2 : 1;
+      const speed = archetype === 'runner' ? 152 : archetype === 'boss' ? 88 : 108;
+      const dropsRemaining = archetype === 'boss' ? 3 : Math.random() < 0.5 ? 2 : 1;
+      const costumeVariant =
+        ctxInfo.costume === 'halloween'
+          ? archetype === 'boss'
+            ? 'pumpkin_head'
+            : pickRandom(HALLOWEEN_VARIANTS)
+          : null;
 
-      const person = {
+      this.people.push({
         id: this.nextId++,
         role: 'litterer',
         archetype,
+        costume: ctxInfo.costume,
+        costumeVariant,
         x: start.x,
         y: start.y,
         z: 0,
@@ -618,21 +960,24 @@ window.Ssudam = window.Ssudam || {};
         waitTimer: nearCenter ? 0.5 : randRange(0.4, 1.1),
         dropsRemaining,
         isCulprit: false,
+        angry: false,
+        ghostTimer: randRange(0, 4),
+        ghostInvisible: false,
         dizzyTimer: 0,
         bubbleText: '',
         bubbleTimer: 0,
         shirtColor: archetype === 'boss' ? '#1e293b' : archetype === 'runner' ? '#f97316' : pickRandom(SHIRT_COLORS),
         hairColor: pickRandom(HAIR_COLORS),
-        scale: archetype === 'boss' ? 1.24 : 1.0,
+        scale: archetype === 'boss' ? 1.25 : 1.0,
         walkPhase: randRange(0, Math.PI * 2),
         yeetFlying: false,
         held: false,
         exiting: false,
-      };
-      this.people.push(person);
+      });
     }
 
     _spawnCitizen(inside = false) {
+      const ctxInfo = this._getCurrentStageContext();
       const start = inside
         ? { x: randRange(PLAZA.left + 80, PLAZA.right - 80), y: randRange(PLAZA.top + 50, PLAZA.bottom - 50) }
         : this._getSpawnEdgePoint(false);
@@ -644,11 +989,14 @@ window.Ssudam = window.Ssudam || {};
       const dy = target.y - start.y;
       const dist = Math.max(1, Math.hypot(dx, dy));
       const spd = randRange(58, 86);
+      const costumeVariant = ctxInfo.costume === 'halloween' ? pickRandom(HALLOWEEN_VARIANTS) : null;
 
       this.people.push({
         id: this.nextId++,
         role: 'citizen',
         archetype: 'standard',
+        costume: ctxInfo.costume,
+        costumeVariant,
         x: start.x,
         y: start.y,
         z: 0,
@@ -663,6 +1011,9 @@ window.Ssudam = window.Ssudam || {};
         waitTimer: randRange(2.0, 4.5),
         dropsRemaining: 0,
         isCulprit: false,
+        angry: false,
+        ghostTimer: 0,
+        ghostInvisible: false,
         dizzyTimer: 0,
         bubbleText: '',
         bubbleTimer: 0,
@@ -677,35 +1028,72 @@ window.Ssudam = window.Ssudam || {};
       });
     }
 
-    _dropTrashFrom(person) {
-      let types = ['bottle', 'can', 'paper'];
-      if (person.archetype === 'runner') {
-        types = ['bottle', 'can', 'paper', 'box'];
-      } else if (person.archetype === 'boss') {
-        types = ['box', 'bag', 'bottle'];
+    _pickTrashTypeFromContext(ctxInfo) {
+      const pool = ctxInfo.trashPool || ['bottle', 'can'];
+      const rares = pool.filter((id) => TRASH_TYPES[id] && TRASH_TYPES[id].isRare);
+      const normals = pool.filter((id) => TRASH_TYPES[id] && !TRASH_TYPES[id].isRare);
+      if (rares.length > 0 && Math.random() < (ctxInfo.rareWeight || 0.16)) {
+        return pickRandom(rares);
       }
-      const chosenType = pickRandom(types);
-      const angle = randRange(0, Math.PI * 2);
-      const tx = clamp(person.x + Math.cos(angle) * 26, PLAZA.left + 26, PLAZA.right - 26);
-      const ty = clamp(person.y + Math.sin(angle) * 20, PLAZA.top + 36, PLAZA.bottom - 26);
+      return pickRandom(normals.length ? normals : pool);
+    }
 
-      this.trashes.push({
-        id: this.nextId++,
-        type: chosenType,
-        x: tx,
-        y: ty,
-        z: 18,
-        vx: Math.cos(angle) * 42,
-        vy: Math.sin(angle) * 32,
-        vz: 95,
-        rot: randRange(-0.4, 0.4),
-        vRot: randRange(-3, 3),
-        age: 0,
-        thrown: false,
-        throwOriginX: tx,
-        throwOriginY: ty,
-        held: false,
-      });
+    _dropTrashFrom(person) {
+      const ctxInfo = this._getCurrentStageContext();
+
+      // Stage 8 Halloween Pumpkin Boss Candy Bomb!
+      if (person.costume === 'halloween' && person.archetype === 'boss') {
+        const bombTypes = ['candy', 'candy', 'candy', 'pumpkin'];
+        bombTypes.forEach((t, idx) => {
+          const ang = (Math.PI * 2 * idx) / bombTypes.length + randRange(-0.2, 0.2);
+          const tx = clamp(person.x + Math.cos(ang) * 42, PLAZA.left + 26, PLAZA.right - 26);
+          const ty = clamp(person.y + Math.sin(ang) * 32, PLAZA.top + 36, PLAZA.bottom - 26);
+          this.trashes.push({
+            id: this.nextId++,
+            type: t,
+            x: tx,
+            y: ty,
+            z: 20,
+            vx: Math.cos(ang) * 85,
+            vy: Math.sin(ang) * 65,
+            vz: 120,
+            rot: randRange(-0.4, 0.4),
+            vRot: randRange(-4, 4),
+            age: 0,
+            thrown: false,
+            isHostileToRobot: false,
+            throwOriginX: tx,
+            throwOriginY: ty,
+            held: false,
+          });
+        });
+        person.bubbleText = '트릭 오어 트릿!! 🎃';
+        person.bubbleTimer = 1.6;
+      } else {
+        const chosenType = this._pickTrashTypeFromContext(ctxInfo);
+        const angle = randRange(0, Math.PI * 2);
+        const tx = clamp(person.x + Math.cos(angle) * 26, PLAZA.left + 26, PLAZA.right - 26);
+        const ty = clamp(person.y + Math.sin(angle) * 20, PLAZA.top + 36, PLAZA.bottom - 26);
+
+        this.trashes.push({
+          id: this.nextId++,
+          type: chosenType,
+          x: tx,
+          y: ty,
+          z: 18,
+          vx: Math.cos(angle) * 42,
+          vy: Math.sin(angle) * 32,
+          vz: 95,
+          rot: randRange(-0.4, 0.4),
+          vRot: randRange(-3, 3),
+          age: 0,
+          thrown: false,
+          isHostileToRobot: false,
+          throwOriginX: tx,
+          throwOriginY: ty,
+          held: false,
+        });
+      }
 
       person.isCulprit = true;
       person.dropsRemaining -= 1;
@@ -733,18 +1121,37 @@ window.Ssudam = window.Ssudam || {};
           tr.vz -= 640 * dt;
           tr.rot += tr.vRot * dt;
 
+          // Hostile counter-thrown trash hitting 쓰담쓰담!
+          if (tr.isHostileToRobot) {
+            const dBot = Math.hypot(tr.x - this.robot.x, tr.y - this.robot.y);
+            if (dBot <= 42 && tr.z < 58) {
+              tr.isHostileToRobot = false;
+              tr.thrown = false;
+              tr.vx = randRange(-60, 60);
+              tr.vy = randRange(40, 85);
+              tr.vz = 75;
+              this.comboCount = 0;
+              this.robot.stunTimer = 0.55;
+              this.robot.eyeMode = 'oops';
+              this.robot.eyeOverrideTimer = 0.9;
+              this.shake.trauma = Math.min(1, this.shake.trauma + 0.38);
+              this.audio.innocentOops();
+              this._spawnPopup(this.robot.x, this.robot.y - 62, '💢 시민의 반격! 콤보 초기화!', '#ef4444', 1.1);
+              this._burstConfetti(this.robot.x, this.robot.y - 16, '#ef4444', 10);
+            }
+          }
+
           // Check mid-flight Smart Bin capture
-          if (tr.thrown && tr.z < 55) {
+          if (!tr.isHostileToRobot && tr.thrown && tr.z < 55) {
             const dBin = Math.hypot(tr.x - SMART_BIN.x, tr.y - SMART_BIN.y);
             if (dBin <= SMART_BIN.magnetRadius) {
               const throwDist = Math.hypot(tr.throwOriginX - SMART_BIN.x, tr.throwOriginY - SMART_BIN.y);
               this.trashes.splice(i, 1);
-              this._rewardTrash(tr, throwDist > 135);
+              this._rewardTrash(tr, throwDist > 135, false);
               continue;
             }
           }
 
-          // Keep trash inside plaza bounds (bounce softly off edges)
           if (tr.x < PLAZA.left + 20) {
             tr.x = PLAZA.left + 20;
             tr.vx = Math.abs(tr.vx) * 0.5;
@@ -762,6 +1169,7 @@ window.Ssudam = window.Ssudam || {};
 
           if (tr.z <= 0) {
             tr.z = 0;
+            tr.isHostileToRobot = false;
             if (Math.abs(tr.vz) > 130) {
               tr.vz = -tr.vz * 0.32;
               tr.vx *= 0.45;
@@ -788,7 +1196,19 @@ window.Ssudam = window.Ssudam || {};
           p.bubbleTimer -= dt;
         }
 
-        // Home-run yeet flight off-screen
+        // Stage 8 Ghost periodic fade!
+        if (p.costume === 'halloween' && p.costumeVariant === 'ghost' && p.isCulprit && !p.yeetFlying) {
+          p.ghostTimer = (p.ghostTimer + dt) % 4.0;
+          const wasInv = p.ghostInvisible;
+          p.ghostInvisible = p.ghostTimer > 2.4;
+          if (!wasInv && p.ghostInvisible) {
+            p.bubbleText = '우우~ 못 잡겠지~?';
+            p.bubbleTimer = 1.2;
+          }
+        } else {
+          p.ghostInvisible = false;
+        }
+
         if (p.yeetFlying) {
           p.x += p.vx * dt;
           p.y += p.vy * dt;
@@ -804,7 +1224,6 @@ window.Ssudam = window.Ssudam || {};
           continue;
         }
 
-        // Thrown tumble physics
         if (p.z > 0 || p.vz !== 0) {
           p.x += p.vx * dt;
           p.y += p.vy * dt;
@@ -812,7 +1231,6 @@ window.Ssudam = window.Ssudam || {};
           p.vz -= 640 * dt;
           p.rot += p.vRot * dt;
 
-          // Mid-flight Human Bin slam
           const dHuman = Math.hypot(p.x - HUMAN_BIN.x, p.y - HUMAN_BIN.y);
           if (p.isCulprit && p.z < 70 && dHuman <= HUMAN_BIN.magnetRadius) {
             const throwDist = Math.hypot((p.throwOriginX || p.x) - HUMAN_BIN.x, (p.throwOriginY || p.y) - HUMAN_BIN.y);
@@ -821,13 +1239,11 @@ window.Ssudam = window.Ssudam || {};
             continue;
           }
 
-          // Crossed left, right, or bottom plaza boundary -> Home Run Yeet!
           if (p.isCulprit && (p.x < PLAZA.left - 8 || p.x > PLAZA.right + 8 || p.y > PLAZA.bottom + 8)) {
             this._triggerHomeRunYeet(p);
             continue;
           }
 
-          // Top wall bounce if not hitting human bin
           if (p.y < PLAZA.top + 20) {
             p.y = PLAZA.top + 20;
             p.vy = Math.abs(p.vy) * 0.4;
@@ -852,7 +1268,6 @@ window.Ssudam = window.Ssudam || {};
           continue;
         }
 
-        // Normal walking AI
         if (p.role === 'citizen') {
           p.lifeTimer -= dt;
           p.walkPhase += dt * 7;
@@ -866,8 +1281,6 @@ window.Ssudam = window.Ssudam || {};
           continue;
         }
 
-        // Litterer AI
-        // Runner flees robot if close and culprit
         if (p.archetype === 'runner' && p.isCulprit && !p.exiting) {
           const dr = Math.hypot(p.x - this.robot.x, p.y - this.robot.y);
           if (dr < 210) {
@@ -883,11 +1296,15 @@ window.Ssudam = window.Ssudam || {};
         const dist = Math.hypot(dx, dy);
 
         if (dist > 14) {
-          const spd = p.isCulprit && p.exiting ? p.speed * 1.12 : p.speed;
-          p.vx = (dx / dist) * spd;
-          p.vy = (dy / dist) * spd;
-          p.x += p.vx * dt;
-          p.y += p.vy * dt;
+          const spd = p.isCulprit && p.exiting ? p.speed * 1.15 : p.speed;
+          const dirX = dx / dist;
+          const dirY = dy / dist;
+          p.vx = dirX * spd;
+          p.vy = dirY * spd;
+          // Drunk lateral zigzag wobble!
+          const wobble = p.costume === 'drunk' ? Math.sin(p.walkPhase * 0.7) * 44 : 0;
+          p.x = clamp(p.x + (p.vx - dirY * wobble) * dt, PLAZA.left - 55, PLAZA.right + 55);
+          p.y = clamp(p.y + (p.vy + dirX * wobble) * dt, PLAZA.top + 8, PLAZA.bottom - 18);
           p.walkPhase += dt * (spd * 0.085);
         } else {
           p.vx = 0;
@@ -908,7 +1325,7 @@ window.Ssudam = window.Ssudam || {};
       }
     }
 
-    _findBestTarget(aimX, aimY, allowInnocentNearCursor = false) {
+    _findBestTarget(aimX, aimY, allowInnocent = false) {
       const reach = this.robot.reachRadius;
       let best = null;
       let bestScore = -Infinity;
@@ -926,7 +1343,7 @@ window.Ssudam = window.Ssudam || {};
       }
 
       for (const tr of this.trashes) {
-        if (tr.held || tr.thrown || tr.z > 20) continue;
+        if (tr.held || tr.thrown || tr.isHostileToRobot || tr.z > 20) continue;
         const dRobot = Math.hypot(tr.x - this.robot.x, tr.y - this.robot.y);
         if (dRobot > reach + 14) continue;
         const dAim = Math.hypot(tr.x - aimX, tr.y - aimY);
@@ -937,14 +1354,22 @@ window.Ssudam = window.Ssudam || {};
         }
       }
 
-      if (!best && allowInnocentNearCursor) {
+      // Check innocent citizen if clicked directly or no valid target exists nearby
+      if (allowInnocent) {
+        let bestInnocent = null;
+        let bestInnocentDist = Infinity;
         for (const p of this.people) {
           if (p.isCulprit || p.held || p.yeetFlying) continue;
           const dRobot = Math.hypot(p.x - this.robot.x, p.y - this.robot.y);
           const dAim = Math.hypot(p.x - aimX, p.y - aimY);
-          if (dRobot <= reach && dAim <= 38) {
-            return { kind: 'person', entity: p, x: p.x, y: p.y, radius: 22, isCulprit: false };
+          if (dRobot <= reach + 12 && dAim <= 56 && dAim < bestInnocentDist) {
+            bestInnocentDist = dAim;
+            bestInnocent = { kind: 'person', entity: p, x: p.x, y: p.y, radius: 22, isCulprit: false };
           }
+        }
+        // If player deliberately clicked right onto an innocent citizen while no trash/culprit is under cursor
+        if (bestInnocent && (!best || bestInnocentDist < Math.hypot(best.x - aimX, best.y - aimY) * 0.65)) {
+          return bestInnocent;
         }
       }
 
@@ -956,7 +1381,6 @@ window.Ssudam = window.Ssudam || {};
 
       const target = this._findBestTarget(aimX, aimY, allowInnocent);
       if (!target) {
-        // Quick reach animation swing even on miss for responsive feel
         this.robot.armStrikeTimer = 0.14;
         const dx = aimX - this.robot.x;
         const dy = aimY - this.robot.y;
@@ -982,20 +1406,20 @@ window.Ssudam = window.Ssudam || {};
       if (target.kind === 'person') {
         const p = target.entity;
         if (p.isCulprit) {
-          p.bubbleText = pickRandom(CULPRIT_BUBBLES);
+          p.bubbleText = p.costume === 'drunk' ? pickRandom(DRUNK_BUBBLES) : pickRandom(CULPRIT_BUBBLES);
           p.bubbleTimer = 3.2;
           this.audio.grab(true);
-          this._spawnPopup(p.x, p.y - 45, '현행범 검거!', '#f87171', 1.0);
+          this._spawnPopup(p.x, p.y - 45, p.angry ? '복수 검거!!' : '현행범 검거!', '#f87171', 1.0);
         } else {
-          // Oops! Grabbed an innocent citizen
+          // Innocent citizen gets angry and prepares to throw trash at robot!
+          p.angry = true;
+          p.bubbleText = pickRandom(ANGRY_BUBBLES);
+          p.bubbleTimer = 2.4;
           r.eyeMode = 'oops';
           r.eyeOverrideTimer = 0.9;
-          r.innocentDropTimer = 0.45;
-          p.bubbleText = '어머 깜짝야!';
-          p.bubbleTimer = 1.4;
-          this.comboCount = 0;
+          r.innocentDropTimer = 0.36;
           this.audio.innocentOops();
-          this._spawnPopup(r.x, r.y - 60, '어머 죄송! (콤보 초기화)', '#60a5fa', 0.95);
+          this._spawnPopup(r.x, r.y - 60, '어?! 일반시민이다!!', '#f87171', 1.0);
         }
       } else {
         target.entity.thrown = false;
@@ -1011,9 +1435,7 @@ window.Ssudam = window.Ssudam || {};
       const dirX = dist > 1 ? dx / dist : this.robot.facingX;
       const dirY = dist > 1 ? dy / dist : this.robot.facingY;
       const clampedDist = clamp(dist, 165, 220 + power * 260);
-      const targetX = this.robot.x + dirX * clampedDist;
-      const targetY = this.robot.y + dirY * clampedDist;
-      this._throwHeldTo(targetX, targetY, power);
+      this._throwHeldTo(this.robot.x + dirX * clampedDist, this.robot.y + dirY * clampedDist, power);
     }
 
     handleTouchActionStart() {
@@ -1023,12 +1445,24 @@ window.Ssudam = window.Ssudam || {};
         if (best) {
           this._grabEntity(best);
         } else {
-          this.robot.armStrikeTimer = 0.14;
-          this.robot.strikeX = this.robot.x + this.robot.facingX * 110;
-          this.robot.strikeY = this.robot.y + this.robot.facingY * 110;
-          this.audio.armExtend();
+          // Only grab innocent on touch if directly adjacent (< 82px) with no valid target in reach
+          let adjInnocent = null;
+          for (const p of this.people) {
+            if (p.isCulprit || p.held || p.yeetFlying) continue;
+            if (Math.hypot(p.x - this.robot.x, p.y - this.robot.y) <= 82) {
+              adjInnocent = { kind: 'person', entity: p, x: p.x, y: p.y, radius: 22, isCulprit: false };
+              break;
+            }
+          }
+          if (adjInnocent) {
+            this._grabEntity(adjInnocent);
+          } else {
+            this.robot.armStrikeTimer = 0.14;
+            this.robot.strikeX = this.robot.x + this.robot.facingX * 110;
+            this.robot.strikeY = this.robot.y + this.robot.facingY * 110;
+            this.audio.armExtend();
+          }
         }
-        // Prevent immediately throwing the newly grabbed item on the same finger tap!
         this._justGrabbedTouch = true;
       } else {
         this._justGrabbedTouch = false;
@@ -1045,11 +1479,8 @@ window.Ssudam = window.Ssudam || {};
 
       if (wasDragged && dragAim) {
         const dist = 210 + dragAim.power * 260;
-        const targetX = this.robot.x + dragAim.dirX * dist;
-        const targetY = this.robot.y + dragAim.dirY * dist;
-        this._throwHeldTo(targetX, targetY, dragAim.power);
+        this._throwHeldTo(this.robot.x + dragAim.dirX * dist, this.robot.y + dragAim.dirY * dist, dragAim.power);
       } else {
-        // Smart quick-tap throw on mobile/tablet!
         this._smartAutoThrow();
       }
     }
@@ -1071,7 +1502,6 @@ window.Ssudam = window.Ssudam || {};
         if (dHuman <= 430) {
           this._throwHeldTo(HUMAN_BIN.x, HUMAN_BIN.y, 0.9);
         } else {
-          // Throw toward nearest plaza exit edge for a home-run yeet!
           const dLeft = this.robot.x - PLAZA.left;
           const dRight = PLAZA.right - this.robot.x;
           const dBot = PLAZA.bottom - this.robot.y;
@@ -1093,7 +1523,6 @@ window.Ssudam = window.Ssudam || {};
       this.robot.held = null;
       this.audio.throwItem(power);
 
-      // Magnet aim assist if aiming near Smart Bin or Human Bin
       let finalX = targetX;
       let finalY = targetY;
       if (held.kind === 'trash') {
@@ -1139,31 +1568,65 @@ window.Ssudam = window.Ssudam || {};
       this.robot.held = null;
       const idx = this.trashes.indexOf(tr);
       if (idx >= 0) this.trashes.splice(idx, 1);
-      this._rewardTrash(tr, isRanged);
+      this._rewardTrash(tr, isRanged, false);
     }
 
-    _rewardTrash(tr, isRanged) {
+    _rewardTrash(tr, isRanged, viaVacuum = false) {
       const def = TRASH_TYPES[tr.type] || TRASH_TYPES.bottle;
       this._advanceCombo();
-      const base = isRanged ? SCORE.trashThrow : SCORE.trashAuto;
+      let base = isRanged ? SCORE.trashThrow : SCORE.trashAuto;
+      if (def.isRare) {
+        base *= 2;
+      }
       const gained = this._applyPoints(base, FEVER.trashGain);
       this.trashCleared += 1;
 
-      this.smartBin.bounce = 1;
-      this.smartBin.flashIndex = def.binIndex;
-      this.smartBin.flashTimer = 0.45;
+      if (!viaVacuum) {
+        this.smartBin.bounce = 1;
+        this.smartBin.flashIndex = def.binIndex;
+        this.smartBin.flashTimer = 0.45;
+      }
       this.robot.eyeMode = 'happy';
-      this.robot.eyeOverrideTimer = 0.45;
+      this.robot.eyeOverrideTimer = 0.42;
 
-      this.audio.binDeposit(this.comboCount);
-      this._burstConfetti(SMART_BIN.x, SMART_BIN.y - 20, def.color, 12);
-      this._spawnPopup(
-        SMART_BIN.x,
-        SMART_BIN.y - 54,
-        isRanged ? `🎯 나이스 슛! +${gained}` : `♻️ 수거 +${gained}`,
-        isRanged ? '#fde047' : '#4ade80',
-        isRanged ? 1.15 : 1.0
-      );
+      if (def.isRare) {
+        this.audio.rareBonus();
+        this._burstConfetti(viaVacuum ? this.robot.x : SMART_BIN.x, (viaVacuum ? this.robot.y : SMART_BIN.y) - 20, '#fde047', 16);
+        this._spawnPopup(
+          viaVacuum ? this.robot.x : SMART_BIN.x,
+          (viaVacuum ? this.robot.y : SMART_BIN.y) - 56,
+          `✨ 희귀 ${def.label.replace(' (희귀)', '')} 2배! +${gained}`,
+          '#fde047',
+          1.18
+        );
+      } else {
+        if (!viaVacuum) this.audio.binDeposit(this.comboCount);
+        const px = viaVacuum ? this.robot.x : SMART_BIN.x;
+        const py = viaVacuum ? this.robot.y : SMART_BIN.y;
+        this._burstConfetti(px, py - 20, def.color, viaVacuum ? 7 : 12);
+        this._spawnPopup(
+          px,
+          py - 52,
+          viaVacuum ? `🌀 흡입 +${gained}` : isRanged ? `🎯 나이스 슛! +${gained}` : `♻️ 수거 +${gained}`,
+          isRanged ? '#fde047' : viaVacuum ? '#38bdf8' : '#4ade80',
+          isRanged ? 1.15 : 0.98
+        );
+      }
+    }
+
+    _rollCulpritSkillDrops(px, py) {
+      // Vacuum: 10% chance (+1 up to 3)
+      if (this.vacuumCharges < SKILLS.vacuumMax && Math.random() < SKILLS.vacuumDropChance) {
+        this.vacuumCharges += 1;
+        this.audio.skillCharge();
+        this._spawnPopup(px, py - 88, '🌀 청소기 스킬 +1 충전!', '#38bdf8', 1.12);
+      }
+      // Helper: 1% chance (+1 up to 2)
+      if (this.helperCharges < SKILLS.helperMax && Math.random() < SKILLS.helperDropChance) {
+        this.helperCharges += 1;
+        this.audio.skillCharge();
+        this._spawnPopup(px, py - 114, '🍀 1% 대박! 조력자 +1 충전!', '#fb923c', 1.2);
+      }
     }
 
     _depositCulpritInHumanBin(p, isRanged) {
@@ -1201,11 +1664,11 @@ window.Ssudam = window.Ssudam || {};
         '#fde047',
         1.22
       );
+      this._rollCulpritSkillDrops(HUMAN_BIN.x, HUMAN_BIN.y);
     }
 
     _triggerHomeRunYeet(p) {
       p.yeetFlying = true;
-      // Accelerate dramatically upward/outward into the horizon like Team Rocket!
       p.vx *= 2.1;
       p.vy = p.vy * 1.4 - 220;
       p.vz = 320;
@@ -1227,15 +1690,12 @@ window.Ssudam = window.Ssudam || {};
       this.robot.eyeMode = 'happy';
       this.robot.eyeOverrideTimer = 0.55;
 
+      const popX = clamp(p.x, 150, WORLD_W - 150);
+      const popY = clamp(p.y - 40, 260, WORLD_H - 90);
       this.audio.yeetHomeRun();
       this._burstConfetti(clamp(p.x, 40, WORLD_W - 40), clamp(p.y, 240, WORLD_H - 40), '#f97316', 16);
-      this._spawnPopup(
-        clamp(p.x, 150, WORLD_W - 150),
-        clamp(p.y - 40, 260, WORLD_H - 90),
-        `⚾ 광장 밖 홈런!! +${gained}`,
-        '#fb923c',
-        1.22
-      );
+      this._spawnPopup(popX, popY, `⚾ 광장 밖 홈런!! +${gained}`, '#fb923c', 1.22);
+      this._rollCulpritSkillDrops(popX, popY);
     }
 
     _clearNearestTrashBonus(refX, refY) {
@@ -1243,7 +1703,7 @@ window.Ssudam = window.Ssudam || {};
       let bestDist = Infinity;
       for (let i = 0; i < this.trashes.length; i++) {
         const tr = this.trashes[i];
-        if (tr.held) continue;
+        if (tr.held || tr.isHostileToRobot) continue;
         const d = Math.hypot(tr.x - refX, tr.y - refY);
         if (d < bestDist) {
           bestDist = d;
@@ -1271,13 +1731,22 @@ window.Ssudam = window.Ssudam || {};
       const gained = Math.round(basePoints * mult * feverMul);
       this.score += gained;
 
+      const feverMax = this._getCurrentFeverMax();
       if (!this.feverActive) {
-        this.feverGauge = Math.min(FEVER.maxGauge, this.feverGauge + feverGain);
-        if (this.feverGauge >= FEVER.maxGauge) {
+        this.feverGauge = Math.min(feverMax, this.feverGauge + feverGain);
+        if (this.feverGauge >= feverMax) {
           this.feverActive = true;
           this.feverTimer = FEVER.durationSec;
           this.audio.feverStart();
-          this._showToast('⚡ FEVER TIME! 이동속도·팔 리치 UP · 점수 2배!', 'fever', 2.4);
+
+          // Fever grants +1 Helper charge up to max (2)!
+          let msg = '⚡ FEVER TIME! 이동속도·팔 리치 UP · 점수 2배!';
+          if (this.helperCharges < SKILLS.helperMax) {
+            this.helperCharges += 1;
+            msg = '⚡ FEVER TIME! 🧹 조력자 +1 충전 & 점수 2배!';
+            this._spawnPopup(this.robot.x, this.robot.y - 70, '🧹 피버 보상: 조력자 +1!', '#fb923c', 1.15);
+          }
+          this._showToast(msg, 'fever', 2.4);
           this._burstConfetti(this.robot.x, this.robot.y - 20, '#fde047', 22);
         }
       }
@@ -1311,6 +1780,7 @@ window.Ssudam = window.Ssudam || {};
       this.mode = 'BREAKING_DOWN';
       this.breakdownTimer = 1.35;
       this.input.setPaused(true);
+      this.dom.skillDock.classList.add('hidden');
       this.robot.eyeMode = 'broken';
       this.shake.trauma = 1.0;
       this.audio.breakdown();
@@ -1352,7 +1822,8 @@ window.Ssudam = window.Ssudam || {};
 
     _finishGameOver() {
       this.mode = 'GAME_OVER';
-      const isNew = ns.CONFIG.saveStageScore(this.currentStageId, this.score, this.elapsed);
+      this.dom.skillDock.classList.add('hidden');
+      const res = ns.CONFIG.saveStageResult(this.currentStageId, this.score, this.elapsed, false, 0);
 
       this.dom.goTitle.textContent = '💥 쓰담쓰담 과부하 고장!';
       this.dom.goSubtitle.textContent =
@@ -1364,7 +1835,7 @@ window.Ssudam = window.Ssudam || {};
       this.dom.goTrash.textContent = `${this.trashCleared}개`;
       this.dom.goCulprits.textContent = `${this.culpritsHandled}명`;
       this.dom.goMaxCombo.textContent = `${this.maxCombo} COMBO`;
-      this.dom.goNewRecord.classList.toggle('hidden', !isNew);
+      this.dom.goNewRecord.classList.toggle('hidden', !res.isNewRecord);
 
       this.dom.overlayGameOver.classList.remove('hidden');
       this._refreshTitleScores();
@@ -1373,12 +1844,13 @@ window.Ssudam = window.Ssudam || {};
     _triggerStageClear() {
       this.mode = 'STAGE_CLEAR';
       this.input.setPaused(true);
+      this.dom.skillDock.classList.add('hidden');
       this.audio.stageClear();
 
-      const isNew = ns.CONFIG.saveStageScore(this.currentStageId, this.score, this.elapsed);
       const [s1, s2, s3] = this.stage.starThresholds;
       const starCount = this.score >= s3 ? 3 : this.score >= s2 ? 2 : this.score >= s1 ? 1 : 1;
       const starsStr = '★'.repeat(starCount) + '☆'.repeat(3 - starCount);
+      const res = ns.CONFIG.saveStageResult(this.currentStageId, this.score, this.elapsed, true, starCount);
 
       this.dom.clearTitle.textContent = `${this.stage.name} 클리어!`;
       this.dom.clearStars.textContent = starsStr;
@@ -1386,23 +1858,30 @@ window.Ssudam = window.Ssudam || {};
       this.dom.clearTrash.textContent = `${this.trashCleared}개`;
       this.dom.clearCulprits.textContent = `${this.culpritsHandled}명`;
       this.dom.clearMaxCombo.textContent = `${this.maxCombo} COMBO`;
-      this.dom.clearNewRecord.classList.toggle('hidden', !isNew);
-      this.dom.btnNextStage.classList.toggle('hidden', !this.stage.nextStage);
+      this.dom.clearNewRecord.classList.toggle('hidden', !res.isNewRecord);
 
+      if (res.newlyUnlockedStage) {
+        this.dom.clearUnlockBadge.textContent = `🔓 STAGE ${res.newlyUnlockedStage} 해금!`;
+        this.dom.clearUnlockBadge.classList.remove('hidden');
+      } else {
+        this.dom.clearUnlockBadge.classList.add('hidden');
+      }
+
+      this.dom.btnNextStage.classList.toggle('hidden', !this.stage.nextStage);
       this.dom.overlayClear.classList.remove('hidden');
       this._refreshTitleScores();
     }
 
     _spawnParticle(x, y, z, color, size, life, kind = 'confetti') {
       const ang = randRange(0, Math.PI * 2);
-      const spd = kind === 'smoke' ? randRange(12, 35) : randRange(65, 190);
+      const spd = kind === 'smoke' || kind === 'dust' ? randRange(12, 38) : randRange(65, 190);
       this.particles.push({
         x,
         y,
         z,
         vx: Math.cos(ang) * spd,
         vy: Math.sin(ang) * spd * 0.65,
-        vz: kind === 'smoke' ? randRange(25, 55) : randRange(80, 200),
+        vz: kind === 'smoke' || kind === 'dust' ? randRange(24, 52) : randRange(80, 200),
         size,
         color,
         life,
@@ -1452,7 +1931,7 @@ window.Ssudam = window.Ssudam || {};
         pt.x += pt.vx * dt;
         pt.y += pt.vy * dt;
         pt.z = Math.max(0, pt.z + pt.vz * dt);
-        if (pt.kind !== 'smoke' && pt.kind !== 'ring') {
+        if (pt.kind !== 'smoke' && pt.kind !== 'dust' && pt.kind !== 'ring') {
           pt.vz -= 420 * dt;
         }
       }
@@ -1490,10 +1969,24 @@ window.Ssudam = window.Ssudam || {};
       this.dom.hudOverloadFill.style.width = `${ovPct}%`;
       this.dom.hudOverloadBox.classList.toggle('danger', this.overloadRatio >= 0.7);
 
-      const fvPct = Math.round((this.feverGauge / FEVER.maxGauge) * 100);
+      const feverMax = this._getCurrentFeverMax();
+      const fvPct = Math.min(100, Math.round((this.feverGauge / feverMax) * 100));
       this.dom.hudFeverText.textContent = this.feverActive ? 'FEVER x2!' : `${fvPct}%`;
       this.dom.hudFeverFill.style.width = `${fvPct}%`;
       this.dom.hudFeverBox.classList.toggle('fever-active', this.feverActive);
+
+      // Sync Skill Dock
+      this.dom.vacuumCount.textContent =
+        this.vacuumTimer > 0 ? `${this.vacuumTimer.toFixed(1)}초` : `${this.vacuumCharges} / ${SKILLS.vacuumMax}`;
+      this.dom.btnVacuum.disabled = this.vacuumCharges <= 0 && this.vacuumTimer <= 0;
+      this.dom.btnVacuum.classList.toggle('active', this.vacuumTimer > 0);
+      this.dom.vacuumActiveBar.style.width =
+        this.vacuumTimer > 0 ? `${(this.vacuumTimer / SKILLS.vacuumDuration) * 100}%` : '0%';
+
+      this.dom.helperCount.textContent =
+        this.helpers.length > 0 ? '청소 중!' : `${this.helperCharges} / ${SKILLS.helperMax}`;
+      this.dom.btnHelper.disabled = this.helperCharges <= 0 || this.helpers.length > 0;
+      this.dom.btnHelper.classList.toggle('active', this.helpers.length > 0);
     }
 
     _buildAimGuide() {
@@ -1538,23 +2031,30 @@ window.Ssudam = window.Ssudam || {};
           ? this._findBestTarget(
               this.input.isTouchMode ? this.robot.x : this.input.aimWorldX,
               this.input.isTouchMode ? this.robot.y : this.input.aimWorldY,
-              false
+              !this.input.isTouchMode
             )
           : null;
 
+      const ctxInfo = this._getCurrentStageContext();
+      const feverMax = this._getCurrentFeverMax();
+
       return {
         time: this.time,
-        theme: this.mode === 'TITLE' ? 'morning' : this.stage.theme,
-        cyclePhase: (this.elapsed % 180) / 180,
+        theme: this.mode === 'TITLE' ? 'bright_day' : this.stage.theme,
+        isNight: ctxInfo.isNight,
+        cyclePhase: (this.elapsed % (28 * STAGE_ORDER.length)) / (28 * STAGE_ORDER.length),
         overloadRatio: this.overloadRatio,
         feverActive: this.feverActive,
-        feverRatio: this.feverGauge / FEVER.maxGauge,
+        feverRatio: this.feverGauge / feverMax,
+        vacuumActive: this.vacuumTimer > 0,
+        vacuumRadius: this.feverActive ? SKILLS.vacuumFeverRadius : SKILLS.vacuumRadius,
         shake: this.shake,
         smartBin: this.smartBin,
         humanBin: this.humanBin,
         robot: this.robot,
         trashes: this.trashes,
         people: this.people,
+        helpers: this.helpers,
         particles: this.particles,
         popups: this.popups,
         aimGuide: this._buildAimGuide(),

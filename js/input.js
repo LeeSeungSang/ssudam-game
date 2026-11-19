@@ -23,7 +23,7 @@ window.Ssudam = window.Ssudam || {};
       this.pcCharging = false;
       this.pcChargeStart = 0;
 
-      // Touch left joystick (in canvas CSS pixels for consistent thumb ergonomics)
+      // Touch left joystick (in canvas CSS pixels)
       this.leftTouchId = null;
       this.joyOrigin = { x: 0, y: 0 };
       this.joyCurrent = { x: 0, y: 0 };
@@ -91,6 +91,18 @@ window.Ssudam = window.Ssudam || {};
           return;
         }
         if (this.paused) return;
+
+        if ((e.code === 'KeyQ' || e.code === 'Digit1') && !e.repeat) {
+          e.preventDefault();
+          if (this.cb.onUseVacuum) this.cb.onUseVacuum();
+          return;
+        }
+
+        if ((e.code === 'KeyE' || e.code === 'Digit2') && !e.repeat) {
+          e.preventDefault();
+          if (this.cb.onUseHelper) this.cb.onUseHelper();
+          return;
+        }
 
         if (
           e.code === 'ArrowUp' ||

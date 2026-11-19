@@ -7,6 +7,7 @@ window.Ssudam = window.Ssudam || {};
       this.muted = false;
       this.unlocked = false;
       this._lastWarningAt = 0;
+      this._lastSuckAt = 0;
     }
 
     unlock() {
@@ -99,6 +100,12 @@ window.Ssudam = window.Ssudam || {};
       this._tone(659.25 * pitchShift, 0.13, 'triangle', 0.12, null, 0.06);
     }
 
+    rareBonus() {
+      this._tone(880, 0.09, 'triangle', 0.11);
+      this._tone(1174.66, 0.12, 'triangle', 0.12, null, 0.055);
+      this._tone(1567.98, 0.16, 'sine', 0.11, null, 0.11);
+    }
+
     humanBinSlam() {
       this._noise(0.18, 0.22, 420);
       this._tone(135, 0.16, 'sawtooth', 0.14, 58);
@@ -113,6 +120,40 @@ window.Ssudam = window.Ssudam || {};
     innocentOops() {
       this._tone(380, 0.12, 'sawtooth', 0.1, 210);
       this._tone(240, 0.18, 'sawtooth', 0.09, 140, 0.11);
+    }
+
+    angryThrow() {
+      this._tone(440, 0.09, 'sawtooth', 0.11, 220);
+      this._tone(680, 0.1, 'square', 0.08, 320, 0.06);
+    }
+
+    slip() {
+      this._tone(520, 0.14, 'sine', 0.1, 220);
+      this._tone(260, 0.14, 'sine', 0.09, 640, 0.11);
+    }
+
+    vacuumStart() {
+      this._noise(0.28, 0.12, 1400);
+      this._tone(220, 0.28, 'sine', 0.11, 660);
+    }
+
+    vacuumSuck() {
+      const now = performance.now();
+      if (now - this._lastSuckAt < 90) return;
+      this._lastSuckAt = now;
+      this._tone(420, 0.07, 'sine', 0.08, 920);
+    }
+
+    helperSweep() {
+      this._tone(440, 0.1, 'triangle', 0.11);
+      this._tone(554.37, 0.1, 'triangle', 0.11, null, 0.08);
+      this._tone(659.25, 0.16, 'triangle', 0.12, null, 0.16);
+      this._noise(0.32, 0.08, 1200, 0.12);
+    }
+
+    skillCharge() {
+      this._tone(659.25, 0.08, 'triangle', 0.1);
+      this._tone(987.77, 0.14, 'triangle', 0.11, null, 0.06);
     }
 
     feverStart() {
