@@ -1,7 +1,7 @@
 window.Ssudam = window.Ssudam || {};
 
 (function (ns) {
-  const { WORLD_W, WORLD_H, PLAZA, ROBOT, TRASH_TYPES } = ns.CONFIG;
+  const { WORLD_W, WORLD_H, PLAZA, ROBOT, TRASH_VISUAL_SCALE, TRASH_TYPES } = ns.CONFIG;
 
   function lerp(a, b, t) {
     return a + (b - a) * t;
@@ -787,38 +787,40 @@ window.Ssudam = window.Ssudam || {};
     _drawTrash(ctx, tr, time) {
       const def = TRASH_TYPES[tr.type] || TRASH_TYPES.bottle;
       const z = tr.z || 0;
+      const sc = TRASH_VISUAL_SCALE || 1.5;
 
       ctx.save();
       ctx.fillStyle = 'rgba(15, 23, 42, 0.22)';
       const shScale = Math.max(0.45, 1 - z / 160);
       ctx.beginPath();
-      ctx.ellipse(tr.x, tr.y + 8, def.radius * 0.9 * shScale, def.radius * 0.45 * shScale, 0, 0, Math.PI * 2);
+      ctx.ellipse(tr.x, tr.y + 11, def.radius * 0.95 * shScale, def.radius * 0.48 * shScale, 0, 0, Math.PI * 2);
       ctx.fill();
 
       // Golden sparkle ring for Rare 2x items
       if (def.isRare && z < 4) {
         const pulse = 1 + 0.14 * Math.sin(time * 7);
         ctx.strokeStyle = '#fde047';
-        ctx.lineWidth = 2.5;
+        ctx.lineWidth = 2.8;
         ctx.beginPath();
-        ctx.ellipse(tr.x, tr.y + 3, def.radius * 1.3 * pulse, def.radius * 0.72 * pulse, 0, 0, Math.PI * 2);
+        ctx.ellipse(tr.x, tr.y + 4, def.radius * 1.32 * pulse, def.radius * 0.74 * pulse, 0, 0, Math.PI * 2);
         ctx.stroke();
         ctx.fillStyle = '#fef08a';
-        ctx.font = '900 12px sans-serif';
+        ctx.font = '900 13px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('✨2x', tr.x, tr.y - 22 - Math.abs(Math.sin(time * 5)) * 4);
+        ctx.fillText('✨2x', tr.x, tr.y - 31 - Math.abs(Math.sin(time * 5)) * 4);
       }
 
       if (tr.isHostileToRobot) {
         ctx.strokeStyle = '#ef4444';
-        ctx.lineWidth = 2.5;
+        ctx.lineWidth = 2.8;
         ctx.beginPath();
-        ctx.arc(tr.x, tr.y - z, def.radius + 5, 0, Math.PI * 2);
+        ctx.arc(tr.x, tr.y - z, def.radius + 7, 0, Math.PI * 2);
         ctx.stroke();
       }
 
       ctx.translate(tr.x, tr.y - z);
       ctx.rotate(tr.rot || 0);
+      ctx.scale(sc, sc);
       this._drawTrashSprite(ctx, tr.type, def, time);
       ctx.restore();
     }
@@ -1178,17 +1180,54 @@ window.Ssudam = window.Ssudam || {};
       const bob = p.held ? 0 : Math.abs(Math.sin(p.walkPhase || 0)) * 3;
       const legSwing = p.held ? Math.sin(time * 24) * 7 : Math.sin(p.walkPhase || 0) * 6;
       const costume = p.costume || 'casual';
+      const isFemale = p.gender === 'female';
+      const hairStyle = p.hairStyle || 'short';
 
       // Legs
-      ctx.strokeStyle = '#1e293b';
-      ctx.lineWidth = 5.5;
+      ctx.strokeStyle = isFemale ? '#f5cba7' : '#1e293b';
+      ctx.lineWidth = isFemale ? 4.8 : 5.5;
       ctx.lineCap = 'round';
       ctx.beginPath();
-      ctx.moveTo(-6, 4 - bob);
-      ctx.lineTo(-6 - legSwing * 0.4, 15);
-      ctx.moveTo(6, 4 - bob);
-      ctx.lineTo(6 + legSwing * 0.4, 15);
+      ctx.moveTo(-5.5, 4 - bob);
+      ctx.lineTo(-5.5 - legSwing * 0.4, 15);
+      ctx.moveTo(5.5, 4 - bob);
+      ctx.lineTo(5.5 + legSwing * 0.4, 15);
       ctx.stroke();
+
+      // Shoes
+      ctx.fillStyle = '#1e293b';
+      ctx.beginPath();
+      ctx.ellipse(-5.5 - legSwing * 0.4, 15.5, 4, 2.5, 0, 0, Math.PI * 2);
+      ctx.ellipse(5.5 + legSwing * 0.4, 15.5, 4, 2.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Female back hair behind head & torso (when not wearing pumpkin/ghost head)
+      const hideHumanHair =
+        costume === 'halloween' && (p.costumeVariant === 'pumpkin_head' || p.costumeVariant === 'ghost');
+      if (isFemale && !hideHumanHair) {
+        ctx.fillStyle = p.hairColor;
+        if (hairStyle === 'long') {
+          this._roundRect(ctx, -14, -30 - bob, 28, 30, 10);
+          ctx.fill();
+        } else if (hairStyle === 'bob') {
+          this._roundRect(ctx, -13.5, -30 - bob, 27, 20, 9);
+          ctx.fill();
+        } else if (hairStyle === 'ponytail') {
+          const sway = Math.sin(time * 7 + (p.walkPhase || 0)) * 3;
+          ctx.save();
+          ctx.translate(11, -27 - bob);
+          ctx.rotate(0.35 + sway * 0.04);
+          ctx.beginPath();
+          ctx.ellipse(3, 8, 5, 11, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+          // Hair tie scrunchy
+          ctx.fillStyle = '#f43f5e';
+          ctx.beginPath();
+          ctx.arc(10, -29 - bob, 3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
 
       // Halloween Dracula cape behind torso
       if (costume === 'halloween' && p.costumeVariant === 'dracula') {
@@ -1204,7 +1243,7 @@ window.Ssudam = window.Ssudam || {};
 
       // Traveler backpack
       if (costume === 'traveler') {
-        ctx.fillStyle = '#0284c7';
+        ctx.fillStyle = isFemale ? '#f472b6' : '#0284c7';
         this._roundRect(ctx, -17, -14 - bob, 34, 18, 6);
         ctx.fill();
       }
@@ -1212,19 +1251,38 @@ window.Ssudam = window.Ssudam || {};
       // Torso / Costume Outfit
       let torsoColor = p.shirtColor;
       if (costume === 'office' || costume === 'tired_office') {
-        torsoColor = '#1e293b';
+        torsoColor = isFemale ? '#334155' : '#1e293b';
       } else if (costume === 'stylish') {
-        torsoColor = '#18181b';
+        torsoColor = isFemale ? '#7e22ce' : '#18181b';
       } else if (costume === 'halloween' && p.costumeVariant === 'ghost') {
         torsoColor = '#f8fafc';
       }
 
-      ctx.fillStyle = torsoColor;
-      ctx.strokeStyle = '#0f172a';
-      ctx.lineWidth = 2;
-      this._roundRect(ctx, -13, -15 - bob, 26, 22, 8);
-      ctx.fill();
-      ctx.stroke();
+      if (isFemale && costume !== 'halloween') {
+        // Flared skirt / dress hem silhouette for women
+        ctx.fillStyle = costume === 'office' || costume === 'tired_office' ? '#0f172a' : torsoColor;
+        ctx.strokeStyle = '#0f172a';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-11, -15 - bob);
+        ctx.lineTo(11, -15 - bob);
+        ctx.lineTo(16, 8 - bob);
+        ctx.lineTo(-16, 8 - bob);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        // Upper blouse contrast
+        ctx.fillStyle = torsoColor;
+        this._roundRect(ctx, -12, -15 - bob, 24, 14, 6);
+        ctx.fill();
+      } else {
+        ctx.fillStyle = torsoColor;
+        ctx.strokeStyle = '#0f172a';
+        ctx.lineWidth = 2;
+        this._roundRect(ctx, -13, -15 - bob, 26, 22, 8);
+        ctx.fill();
+        ctx.stroke();
+      }
 
       // Suit collar / tie or stylish neon stripe
       if (costume === 'office' || costume === 'tired_office') {
@@ -1235,28 +1293,28 @@ window.Ssudam = window.Ssudam || {};
         ctx.lineTo(0, -4 - bob);
         ctx.closePath();
         ctx.fill();
-        ctx.fillStyle = costume === 'tired_office' ? '#fb7185' : '#2563eb';
-        ctx.fillRect(-1.5, -12 - bob, 3, 12);
+        ctx.fillStyle = isFemale ? '#f472b6' : costume === 'tired_office' ? '#fb7185' : '#2563eb';
+        ctx.fillRect(-1.5, -12 - bob, 3, 10);
       } else if (costume === 'stylish') {
-        ctx.fillStyle = '#ec4899';
-        ctx.fillRect(-3, -14 - bob, 6, 18);
+        ctx.fillStyle = isFemale ? '#fde047' : '#ec4899';
+        ctx.fillRect(-3, -14 - bob, 6, 17);
       }
 
       // Arms
       ctx.strokeStyle = torsoColor;
-      ctx.lineWidth = 5;
+      ctx.lineWidth = isFemale ? 4.4 : 5;
       ctx.beginPath();
       if (p.held) {
         const wave = Math.sin(time * 28) * 6;
-        ctx.moveTo(-13, -10);
-        ctx.lineTo(-22, -20 + wave);
-        ctx.moveTo(13, -10);
-        ctx.lineTo(22, -20 - wave);
+        ctx.moveTo(-12, -10);
+        ctx.lineTo(-21, -20 + wave);
+        ctx.moveTo(12, -10);
+        ctx.lineTo(21, -20 - wave);
       } else {
-        ctx.moveTo(-13, -10 - bob);
-        ctx.lineTo(-17, 2 - bob + legSwing * 0.3);
-        ctx.moveTo(13, -10 - bob);
-        ctx.lineTo(17, 2 - bob - legSwing * 0.3);
+        ctx.moveTo(-12, -10 - bob);
+        ctx.lineTo(-16, 2 - bob + legSwing * 0.3);
+        ctx.moveTo(12, -10 - bob);
+        ctx.lineTo(16, 2 - bob - legSwing * 0.3);
       }
       ctx.stroke();
 
@@ -1288,6 +1346,12 @@ window.Ssudam = window.Ssudam || {};
         ctx.arc(-4.5, -25 - bob, 2.5, 0, Math.PI * 2);
         ctx.arc(4.5, -25 - bob, 2.5, 0, Math.PI * 2);
         ctx.fill();
+        if (isFemale) {
+          ctx.fillStyle = '#ec4899';
+          ctx.beginPath();
+          ctx.arc(9, -35 - bob, 3.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
       } else {
         ctx.fillStyle = p.angry ? '#fca5a5' : '#fde6c4';
         ctx.strokeStyle = '#0f172a';
@@ -1297,26 +1361,43 @@ window.Ssudam = window.Ssudam || {};
         ctx.fill();
         ctx.stroke();
 
-        // Drunk flushed cheeks
+        // Drunk flushed cheeks / soft blush for women
         if (costume === 'drunk') {
           ctx.fillStyle = 'rgba(239, 68, 68, 0.55)';
           ctx.beginPath();
           ctx.arc(-7, -23 - bob, 3.2, 0, Math.PI * 2);
           ctx.arc(7, -23 - bob, 3.2, 0, Math.PI * 2);
           ctx.fill();
+        } else if (isFemale) {
+          ctx.fillStyle = 'rgba(244, 114, 182, 0.38)';
+          ctx.beginPath();
+          ctx.arc(-7, -22 - bob, 2.6, 0, Math.PI * 2);
+          ctx.arc(7, -22 - bob, 2.6, 0, Math.PI * 2);
+          ctx.fill();
         }
 
-        // Hair
+        // Top Hair & Bangs
         ctx.fillStyle = p.hairColor;
         ctx.beginPath();
-        ctx.arc(0, -30 - bob, 11.5, Math.PI, Math.PI * 2);
+        ctx.arc(0, -30 - bob, 11.8, Math.PI, Math.PI * 2);
         ctx.fill();
+        if (isFemale) {
+          // Cute side-swept bangs + hair pin/ribbon
+          ctx.beginPath();
+          ctx.moveTo(-11, -31 - bob);
+          ctx.quadraticCurveTo(-3, -26 - bob, 4, -33 - bob);
+          ctx.lineTo(11, -31 - bob);
+          ctx.lineTo(0, -39 - bob);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = '#ec4899';
+          ctx.fillRect(-10, -34 - bob, 5, 3);
+        }
 
-        // Drunk 아저씨 Necktie tied around forehead!
+        // Drunk Necktie / Ribbon tied around forehead!
         if (costume === 'drunk') {
-          ctx.fillStyle = '#ef4444';
+          ctx.fillStyle = isFemale ? '#ec4899' : '#ef4444';
           ctx.fillRect(-12, -34 - bob, 24, 5);
-          // Flapping tie tails on side of head!
           ctx.beginPath();
           ctx.moveTo(11, -33 - bob);
           ctx.lineTo(21, -37 - bob + Math.sin(time * 8) * 3);
@@ -1327,8 +1408,8 @@ window.Ssudam = window.Ssudam || {};
 
         // Traveler cap / Witch hat / Sunglasses
         if (costume === 'traveler') {
-          ctx.fillStyle = '#facc15';
-          this._roundRect(ctx, -13, -38 - bob, 26, 6, 3);
+          ctx.fillStyle = isFemale ? '#fb7185' : '#facc15';
+          this._roundRect(ctx, isFemale ? -15 : -13, -38 - bob, isFemale ? 30 : 26, 6, 3);
           ctx.fill();
         } else if (costume === 'halloween' && p.costumeVariant === 'witch') {
           ctx.fillStyle = '#7e22ce';
@@ -1358,6 +1439,16 @@ window.Ssudam = window.Ssudam || {};
             ctx.arc(-4, -25 - bob, 1.8, 0, Math.PI * 2);
             ctx.arc(4, -25 - bob, 1.8, 0, Math.PI * 2);
             ctx.fill();
+            if (isFemale) {
+              ctx.strokeStyle = '#0f172a';
+              ctx.lineWidth = 1.4;
+              ctx.beginPath();
+              ctx.moveTo(-5.5, -26 - bob);
+              ctx.lineTo(-7.5, -27.5 - bob);
+              ctx.moveTo(5.5, -26 - bob);
+              ctx.lineTo(7.5, -27.5 - bob);
+              ctx.stroke();
+            }
           }
         }
       }
@@ -1757,7 +1848,8 @@ window.Ssudam = window.Ssudam || {};
         if (robot.held.kind === 'trash') {
           const tr = robot.held.entity;
           ctx.save();
-          ctx.translate(ex, ey + 10);
+          ctx.translate(ex, ey + 12);
+          ctx.scale(1.28, 1.28);
           this._drawTrashSprite(ctx, tr.type, TRASH_TYPES[tr.type] || TRASH_TYPES.bottle, time);
           ctx.restore();
         } else if (robot.held.kind === 'person') {

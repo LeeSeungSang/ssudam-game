@@ -20,8 +20,10 @@ window.Ssudam = window.Ssudam || {};
     ANGRY_BUBBLES,
   } = ns.CONFIG;
 
-  const SHIRT_COLORS = ['#3b82f6', '#ec4899', '#8b5cf6', '#14b8a6', '#f97316', '#64748b', '#ef4444'];
+  const SHIRT_COLORS_MALE = ['#3b82f6', '#0284c7', '#14b8a6', '#f97316', '#64748b', '#1d4ed8'];
+  const SHIRT_COLORS_FEMALE = ['#ec4899', '#8b5cf6', '#f43f5e', '#06b6d4', '#f59e0b', '#10b981'];
   const HAIR_COLORS = ['#1e293b', '#451a03', '#78350f', '#334155', '#713f12'];
+  const FEMALE_HAIR_STYLES = ['long', 'ponytail', 'bob'];
   const HALLOWEEN_VARIANTS = ['witch', 'pumpkin_head', 'ghost', 'dracula'];
 
   function clamp(v, min, max) {
@@ -48,11 +50,15 @@ window.Ssudam = window.Ssudam || {};
       this.canvas = document.getElementById('game-canvas');
       this.renderer = new ns.Renderer(this.canvas);
       this.audio = new ns.Audio();
+      this.leaderboard = new ns.Leaderboard();
 
       this.dom = {
+        topCornerNav: document.getElementById('top-corner-nav'),
+        btnOpenRanking: document.getElementById('btn-open-ranking'),
         hud: document.getElementById('hud'),
         hudStage: document.getElementById('hud-stage'),
         hudTimer: document.getElementById('hud-timer'),
+        hudNextRank: document.getElementById('hud-next-rank'),
         hudScore: document.getElementById('hud-score'),
         hudCombo: document.getElementById('hud-combo'),
         hudOverloadBox: document.getElementById('hud-overload-box'),
@@ -70,10 +76,18 @@ window.Ssudam = window.Ssudam || {};
         btnHelper: document.getElementById('btn-skill-helper'),
         helperCount: document.getElementById('helper-count'),
         toast: document.getElementById('toast-banner'),
+        hofName: document.getElementById('hof-name'),
+        hofScore: document.getElementById('hof-score'),
         overlayTitle: document.getElementById('overlay-title'),
         overlayPause: document.getElementById('overlay-pause'),
         overlayClear: document.getElementById('overlay-clear'),
         overlayGameOver: document.getElementById('overlay-gameover'),
+        overlayRanking: document.getElementById('overlay-ranking'),
+        btnCloseRanking: document.getElementById('btn-close-ranking'),
+        rankingSourceBadge: document.getElementById('ranking-source-badge'),
+        rankingRuleNote: document.getElementById('ranking-rule-note'),
+        rankingScrollArea: document.getElementById('ranking-scroll-area'),
+        rankingList: document.getElementById('ranking-list'),
         clearTitle: document.getElementById('clear-title'),
         clearStars: document.getElementById('clear-stars'),
         clearScore: document.getElementById('clear-score'),
@@ -93,7 +107,13 @@ window.Ssudam = window.Ssudam || {};
         goCulprits: document.getElementById('go-culprits'),
         goMaxCombo: document.getElementById('go-max-combo'),
         goNewRecord: document.getElementById('go-new-record'),
+        rankSubmitBox: document.getElementById('rank-submit-box'),
+        rankSubmitTitle: document.getElementById('rank-submit-title'),
+        rankNickname: document.getElementById('rank-nickname'),
+        btnSubmitRank: document.getElementById('btn-submit-rank'),
+        rankSubmitStatus: document.getElementById('rank-submit-status'),
         btnRetryGo: document.getElementById('btn-retry-go'),
+        btnViewRankingGo: document.getElementById('btn-view-ranking-go'),
         btnMenuGo: document.getElementById('btn-menu-go'),
         btnResume: document.getElementById('btn-resume'),
         btnRestartPause: document.getElementById('btn-restart-pause'),
@@ -175,6 +195,7 @@ window.Ssudam = window.Ssudam || {};
 
       this._bindUI();
       this._refreshTitleScores();
+      this._refreshGlobalRankings();
       this._seedIdleScene();
 
       window.addEventListener('resize', () => this.renderer.resize());
@@ -247,6 +268,19 @@ window.Ssudam = window.Ssudam || {};
 
       this.dom.btnRetryGo.addEventListener('click', () => this.startStage(this.currentStageId));
       this.dom.btnMenuGo.addEventListener('click', () => this.returnToTitle());
+      this.dom.btnViewRankingGo.addEventListener('click', () => this.openRankingModal());
+      this.dom.btnOpenRanking.addEventListener('click', () => this.openRankingModal());
+      this.dom.btnCloseRanking.addEventListener('click', () => this.closeRankingModal());
+      this.dom.overlayRanking.addEventListener('click', (e) => {
+        if (e.target === this.dom.overlayRanking) this.closeRankingModal();
+      });
+      this.dom.btnSubmitRank.addEventListener('click', () => this._handleRankSubmit());
+      this.dom.rankNickname.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') this._handleRankSubmit();
+      });
+
+      this._setupDragScroll(this.dom.rankingScrollArea);
 
       // Skill buttons (prevent touch propagation to canvas)
       this.dom.btnVacuum.addEventListener(
@@ -337,12 +371,14 @@ window.Ssudam = window.Ssudam || {};
       this.dom.hud.classList.add('hidden');
       this.dom.skillDock.classList.add('hidden');
       this.dom.toast.classList.add('hidden');
+      this.dom.topCornerNav.classList.remove('hidden');
       this.dom.overlayTitle.classList.remove('hidden');
       this.robot = this._createRobot();
       this.particles = [];
       this.popups = [];
       this._seedIdleScene();
       this._refreshTitleScores();
+      this._refreshGlobalRankings();
     }
 
     startStage(stageId) {
@@ -359,8 +395,13 @@ window.Ssudam = window.Ssudam || {};
       this.input.resetTransient();
 
       this._hideAllOverlays();
+      this.dom.topCornerNav.classList.add('hidden');
       this.dom.hud.classList.remove('hidden');
       this.dom.skillDock.classList.remove('hidden');
+      this._lastTargetedRank = null;
+      if (this.stage.endless) {
+        this._refreshGlobalRankings();
+      }
 
       this.elapsed = 0;
       this.score = 0;
@@ -411,13 +452,20 @@ window.Ssudam = window.Ssudam || {};
     }
 
     togglePause() {
+      if (!this.dom.overlayRanking.classList.contains('hidden')) {
+        this.closeRankingModal();
+        return;
+      }
       if (this.mode === 'PLAYING') {
         this.mode = 'PAUSED';
         this.input.setPaused(true);
+        this.dom.topCornerNav.classList.remove('hidden');
         this.dom.overlayPause.classList.remove('hidden');
       } else if (this.mode === 'PAUSED') {
         this.mode = 'PLAYING';
         this.input.setPaused(false);
+        this.dom.overlayRanking.classList.add('hidden');
+        this.dom.topCornerNav.classList.add('hidden');
         this.dom.overlayPause.classList.add('hidden');
       }
     }
@@ -713,7 +761,7 @@ window.Ssudam = window.Ssudam || {};
         for (const tr of this.trashes) {
           if (tr.held || tr.z > 6) continue;
           const def = TRASH_TYPES[tr.type];
-          if (def && def.isSlippery && Math.hypot(r.x - tr.x, r.y - tr.y) <= 34) {
+          if (def && def.isSlippery && Math.hypot(r.x - tr.x, r.y - tr.y) <= 44) {
             r.slipTimer = 0.55;
             r.slipCooldown = 1.7;
             r.slipVx = r.facingX * 390;
@@ -937,9 +985,25 @@ window.Ssudam = window.Ssudam || {};
       };
     }
 
+    _pickBalancedGender() {
+      let males = 0;
+      let females = 0;
+      for (const p of this.people) {
+        if (p.yeetFlying) continue;
+        if (p.gender === 'female') females += 1;
+        else males += 1;
+      }
+      if (females < males) return 'female';
+      if (males < females) return 'male';
+      return Math.random() < 0.5 ? 'female' : 'male';
+    }
+
     _spawnLitterer(nearCenter = false) {
       const archetype = this._pickLittererArchetype();
       const ctxInfo = this._getCurrentStageContext();
+      const gender = this._pickBalancedGender();
+      const hairStyle = gender === 'female' ? pickRandom(FEMALE_HAIR_STYLES) : 'short';
+      const shirtPool = gender === 'female' ? SHIRT_COLORS_FEMALE : SHIRT_COLORS_MALE;
       const start = nearCenter
         ? { x: randRange(320, 960), y: randRange(300, 420) }
         : this._getSpawnEdgePoint(true);
@@ -957,6 +1021,8 @@ window.Ssudam = window.Ssudam || {};
         id: this.nextId++,
         role: 'litterer',
         archetype,
+        gender,
+        hairStyle,
         costume: ctxInfo.costume,
         costumeVariant,
         x: start.x,
@@ -979,7 +1045,7 @@ window.Ssudam = window.Ssudam || {};
         dizzyTimer: 0,
         bubbleText: '',
         bubbleTimer: 0,
-        shirtColor: archetype === 'boss' ? '#1e293b' : archetype === 'runner' ? '#f97316' : pickRandom(SHIRT_COLORS),
+        shirtColor: archetype === 'boss' ? '#1e293b' : archetype === 'runner' ? '#f97316' : pickRandom(shirtPool),
         hairColor: pickRandom(HAIR_COLORS),
         scale: archetype === 'boss' ? 1.25 : 1.0,
         walkPhase: randRange(0, Math.PI * 2),
@@ -991,6 +1057,9 @@ window.Ssudam = window.Ssudam || {};
 
     _spawnCitizen(inside = false) {
       const ctxInfo = this._getCurrentStageContext();
+      const gender = this._pickBalancedGender();
+      const hairStyle = gender === 'female' ? pickRandom(FEMALE_HAIR_STYLES) : 'short';
+      const shirtPool = gender === 'female' ? SHIRT_COLORS_FEMALE : SHIRT_COLORS_MALE;
       const start = inside
         ? { x: randRange(PLAZA.left + 80, PLAZA.right - 80), y: randRange(PLAZA.top + 50, PLAZA.bottom - 50) }
         : this._getSpawnEdgePoint(false);
@@ -1008,6 +1077,8 @@ window.Ssudam = window.Ssudam || {};
         id: this.nextId++,
         role: 'citizen',
         archetype: 'standard',
+        gender,
+        hairStyle,
         costume: ctxInfo.costume,
         costumeVariant,
         x: start.x,
@@ -1030,7 +1101,7 @@ window.Ssudam = window.Ssudam || {};
         dizzyTimer: 0,
         bubbleText: '',
         bubbleTimer: 0,
-        shirtColor: pickRandom(SHIRT_COLORS),
+        shirtColor: pickRandom(shirtPool),
         hairColor: pickRandom(HAIR_COLORS),
         scale: 0.96,
         walkPhase: randRange(0, Math.PI * 2),
@@ -1363,7 +1434,7 @@ window.Ssudam = window.Ssudam || {};
         const score = 260 - dAim * 1.1 - dRobot * 0.4;
         if (score > bestScore) {
           bestScore = score;
-          best = { kind: 'trash', entity: tr, x: tr.x, y: tr.y, radius: 20, isCulprit: false };
+          best = { kind: 'trash', entity: tr, x: tr.x, y: tr.y, radius: 28, isCulprit: false };
         }
       }
 
@@ -1628,15 +1699,15 @@ window.Ssudam = window.Ssudam || {};
       }
     }
 
-    _rollCulpritSkillDrops(px, py) {
+    _rollCulpritSkillDrops(px, py, allowHelper = false) {
       // Vacuum: 10% chance (+1 up to 3)
       if (this.vacuumCharges < SKILLS.vacuumMax && Math.random() < SKILLS.vacuumDropChance) {
         this.vacuumCharges += 1;
         this.audio.skillCharge();
         this._spawnPopup(px, py - 88, '🌀 청소기 스킬 +1 충전!', '#38bdf8', 1.12);
       }
-      // Helper: 1% chance (+1 up to 2)
-      if (this.helperCharges < SKILLS.helperMax && Math.random() < SKILLS.helperDropChance) {
+      // Helper: 1% chance (+1 up to 2) ONLY when dumped into 인간쓰레기통!
+      if (allowHelper && this.helperCharges < SKILLS.helperMax && Math.random() < SKILLS.helperDropChance) {
         this.helperCharges += 1;
         this.audio.skillCharge();
         this._spawnPopup(px, py - 114, '🍀 1% 대박! 조력자 +1 충전!', '#fb923c', 1.2);
@@ -1678,7 +1749,7 @@ window.Ssudam = window.Ssudam || {};
         '#fde047',
         1.22
       );
-      this._rollCulpritSkillDrops(HUMAN_BIN.x, HUMAN_BIN.y);
+      this._rollCulpritSkillDrops(HUMAN_BIN.x, HUMAN_BIN.y, true);
     }
 
     _triggerHomeRunYeet(p) {
@@ -1709,7 +1780,7 @@ window.Ssudam = window.Ssudam || {};
       this.audio.yeetHomeRun();
       this._burstConfetti(clamp(p.x, 40, WORLD_W - 40), clamp(p.y, 240, WORLD_H - 40), '#f97316', 16);
       this._spawnPopup(popX, popY, `⚾ 광장 밖 홈런!! +${gained}`, '#fb923c', 1.22);
-      this._rollCulpritSkillDrops(popX, popY);
+      this._rollCulpritSkillDrops(popX, popY, false);
     }
 
     _clearNearestTrashBonus(refX, refY) {
@@ -1752,15 +1823,7 @@ window.Ssudam = window.Ssudam || {};
           this.feverActive = true;
           this.feverTimer = FEVER.durationSec;
           this.audio.feverStart();
-
-          // Fever grants +1 Helper charge up to max (2)!
-          let msg = '⚡ FEVER TIME! 이동속도·팔 리치 UP · 점수 2배!';
-          if (this.helperCharges < SKILLS.helperMax) {
-            this.helperCharges += 1;
-            msg = '⚡ FEVER TIME! 🧹 조력자 +1 충전 & 점수 2배!';
-            this._spawnPopup(this.robot.x, this.robot.y - 70, '🧹 피버 보상: 조력자 +1!', '#fb923c', 1.15);
-          }
-          this._showToast(msg, 'fever', 2.4);
+          this._showToast('⚡ FEVER TIME! 이동속도·팔 리치 UP · 점수 2배!', 'fever', 2.4);
           this._burstConfetti(this.robot.x, this.robot.y - 20, '#fde047', 22);
         }
       }
@@ -1837,12 +1900,13 @@ window.Ssudam = window.Ssudam || {};
     _finishGameOver() {
       this.mode = 'GAME_OVER';
       this.dom.skillDock.classList.add('hidden');
+      this.dom.topCornerNav.classList.remove('hidden');
       const res = ns.CONFIG.saveStageResult(this.currentStageId, this.score, this.elapsed, false, 0);
 
       this.dom.goTitle.textContent = '💥 쓰담쓰담 과부하 고장!';
       this.dom.goSubtitle.textContent =
         this.stage.endless
-          ? '수원역 24시간 청소 기록이 저장되었습니다!'
+          ? '경쟁전 기록을 순위표에 등록해 보세요!'
           : '광장에 쓰레기가 너무 많이 쌓여 로봇이 멈췄습니다...';
       this.dom.goScore.textContent = `${this.score.toLocaleString()}점`;
       this.dom.goTime.textContent = formatTime(this.elapsed);
@@ -1850,6 +1914,23 @@ window.Ssudam = window.Ssudam || {};
       this.dom.goCulprits.textContent = `${this.culpritsHandled}명`;
       this.dom.goMaxCombo.textContent = `${this.maxCombo} COMBO`;
       this.dom.goNewRecord.classList.toggle('hidden', !res.isNewRecord);
+
+      if (this.stage.endless) {
+        const projRank = this.leaderboard.getProjectedRank(this.score);
+        this.dom.rankSubmitBox.classList.remove('hidden');
+        this.dom.btnViewRankingGo.classList.remove('hidden');
+        this.dom.rankSubmitTitle.textContent =
+          projRank <= 30
+            ? `🏆 현재 예상 순위 ${projRank}등! 닉네임을 등록하세요`
+            : '🏆 경쟁전 기록을 등록하세요 (TOP 30 도전!)';
+        this.dom.rankNickname.value = this.leaderboard.getSavedNickname();
+        this.dom.btnSubmitRank.disabled = false;
+        this.dom.btnSubmitRank.textContent = '등록';
+        this.dom.rankSubmitStatus.classList.add('hidden');
+      } else {
+        this.dom.rankSubmitBox.classList.add('hidden');
+        this.dom.btnViewRankingGo.classList.add('hidden');
+      }
 
       this.dom.overlayGameOver.classList.remove('hidden');
       this._refreshTitleScores();
@@ -1859,6 +1940,7 @@ window.Ssudam = window.Ssudam || {};
       this.mode = 'STAGE_CLEAR';
       this.input.setPaused(true);
       this.dom.skillDock.classList.add('hidden');
+      this.dom.topCornerNav.classList.remove('hidden');
       this.audio.stageClear();
 
       const [s1, s2, s3] = this.stage.starThresholds;
@@ -1977,6 +2059,31 @@ window.Ssudam = window.Ssudam || {};
         this.dom.hudTimer.textContent = timerStr;
       }
 
+      const showNextRank = Boolean(this.stage.endless);
+      if (c.showNextRank !== showNextRank) {
+        c.showNextRank = showNextRank;
+        this.dom.hudNextRank.classList.toggle('hidden', !showNextRank);
+      }
+      if (showNextRank) {
+        const target = this.leaderboard.getNextRankTarget(this.score);
+        let rankStr = '👑 1등 도전!';
+        if (target) {
+          const curTargetNum = target.isFirstPlace ? 0 : target.rank;
+          if (this._lastTargetedRank !== null && curTargetNum < this._lastTargetedRank) {
+            this.audio.rareBonus();
+            this._spawnPopup(this.robot.x, this.robot.y - 72, `🎉 ${this._lastTargetedRank}등 돌파!!`, '#fde047', 1.25);
+          }
+          this._lastTargetedRank = curTargetNum;
+          rankStr = target.isFirstPlace
+            ? '👑 전체 1등 돌파 중!'
+            : `🔥 ${target.rank}등까지 ${target.gap.toLocaleString()}점`;
+        }
+        if (c.rankStr !== rankStr) {
+          c.rankStr = rankStr;
+          this.dom.hudNextRank.textContent = rankStr;
+        }
+      }
+
       if (c.score !== this.score) {
         c.score = this.score;
         this.dom.hudScore.textContent = this.score.toLocaleString();
@@ -2058,6 +2165,223 @@ window.Ssudam = window.Ssudam || {};
         c.helperRunning = helperRunning;
         this.dom.btnHelper.classList.toggle('active', helperRunning);
       }
+    }
+
+    async _refreshGlobalRankings(highlightNameKey = null) {
+      const res = await this.leaderboard.fetchTop30();
+      const rows = res.rows || [];
+
+      if (rows.length > 0) {
+        this.dom.hofName.textContent = rows[0].name;
+        this.dom.hofScore.textContent = `${rows[0].score.toLocaleString()}점 (${formatTime(rows[0].timeSec)})`;
+      } else {
+        this.dom.hofName.textContent = '도전자 대기 중';
+        this.dom.hofScore.textContent = '첫 1등의 주인공이 되어보세요!';
+      }
+
+      if (!this.dom.overlayRanking.classList.contains('hidden')) {
+        this._renderRankingModal(res, highlightNameKey);
+      }
+    }
+
+    async openRankingModal(highlightNameKey = null) {
+      this.dom.overlayRanking.classList.remove('hidden');
+      const res = await this.leaderboard.fetchTop30();
+      this._renderRankingModal(res, highlightNameKey);
+    }
+
+    closeRankingModal() {
+      this.dom.overlayRanking.classList.add('hidden');
+    }
+
+    _createLaurelSvg(rank) {
+      const svgNS = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(svgNS, 'svg');
+      svg.setAttribute('viewBox', '0 0 44 36');
+      svg.setAttribute('class', 'laurel-svg');
+
+      const leafColor =
+        rank === 1 ? '#b91c1c' : rank === 2 ? '#475569' : rank === 3 ? '#b45309' : '#16a34a';
+      const strokeColor =
+        rank === 1 ? '#f59e0b' : rank === 2 ? '#94a3b8' : rank === 3 ? '#d97706' : '#15803d';
+
+      const leftBranch = document.createElementNS(svgNS, 'path');
+      leftBranch.setAttribute('d', 'M14,31 C6,24 5,13 13,5');
+      leftBranch.setAttribute('fill', 'none');
+      leftBranch.setAttribute('stroke', strokeColor);
+      leftBranch.setAttribute('stroke-width', '2.2');
+      leftBranch.setAttribute('stroke-linecap', 'round');
+      svg.appendChild(leftBranch);
+
+      const rightBranch = document.createElementNS(svgNS, 'path');
+      rightBranch.setAttribute('d', 'M30,31 C38,24 39,13 31,5');
+      rightBranch.setAttribute('fill', 'none');
+      rightBranch.setAttribute('stroke', strokeColor);
+      rightBranch.setAttribute('stroke-width', '2.2');
+      rightBranch.setAttribute('stroke-linecap', 'round');
+      svg.appendChild(rightBranch);
+
+      const leafCoords = [
+        [8, 23, -30],
+        [7, 16, -15],
+        [9, 9, 10],
+        [36, 23, 30],
+        [37, 16, 15],
+        [35, 9, -10],
+      ];
+      for (const [cx, cy, rot] of leafCoords) {
+        const leaf = document.createElementNS(svgNS, 'ellipse');
+        leaf.setAttribute('cx', String(cx));
+        leaf.setAttribute('cy', String(cy));
+        leaf.setAttribute('rx', '3.5');
+        leaf.setAttribute('ry', '1.8');
+        leaf.setAttribute('fill', leafColor);
+        leaf.setAttribute('transform', `rotate(${rot} ${cx} ${cy})`);
+        svg.appendChild(leaf);
+      }
+      return svg;
+    }
+
+    _renderRankingModal(res, highlightNameKey = null) {
+      const rows = res.rows || [];
+      const listEl = this.dom.rankingList;
+      listEl.textContent = '';
+
+      if (res.source === 'firebase') {
+        this.dom.rankingSourceBadge.textContent = '🌐 실시간 글로벌 순위';
+      } else {
+        this.dom.rankingSourceBadge.textContent = '📱 기기 로컬 순위';
+      }
+
+      if (res.permissionDenied) {
+        this.dom.rankingRuleNote.textContent =
+          '참고: Firebase 보안 규칙에 ssudam_rankings 허용 설정이 없어 현재 기기 순위로 표시됩니다.';
+        this.dom.rankingRuleNote.classList.remove('hidden');
+      } else {
+        this.dom.rankingRuleNote.classList.add('hidden');
+      }
+
+      if (rows.length === 0) {
+        const empty = document.createElement('li');
+        empty.className = 'ranking-empty';
+        empty.textContent = '아직 등록된 경쟁전 기록이 없습니다. 첫 1등에 도전하세요!';
+        listEl.appendChild(empty);
+        return;
+      }
+
+      let myEl = null;
+      rows.forEach((row, idx) => {
+        const rank = idx + 1;
+        const li = document.createElement('li');
+        li.className = 'rank-item';
+        if (rank === 1) li.classList.add('rank-1');
+        else if (rank === 2) li.classList.add('rank-2');
+        else if (rank === 3) li.classList.add('rank-3');
+        else if (rank <= 10) li.classList.add('rank-top10');
+
+        const isMe = highlightNameKey && row.nameKey === highlightNameKey;
+        if (isMe) {
+          li.classList.add('is-me');
+          myEl = li;
+        }
+
+        const badgeWrap = document.createElement('div');
+        badgeWrap.className = 'rank-badge-wrap';
+        if (rank <= 10) {
+          badgeWrap.appendChild(this._createLaurelSvg(rank));
+        }
+        const numSpan = document.createElement('span');
+        numSpan.className = 'rank-num-text';
+        numSpan.textContent =
+          rank === 1 ? '👑1' : rank === 2 ? '🥈2' : rank === 3 ? '🥉3' : String(rank);
+        badgeWrap.appendChild(numSpan);
+
+        const mainDiv = document.createElement('div');
+        mainDiv.className = 'rank-main';
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'rank-name';
+        nameSpan.textContent = row.name;
+        mainDiv.appendChild(nameSpan);
+
+        if (isMe) {
+          const mePill = document.createElement('span');
+          mePill.className = 'me-pill';
+          mePill.textContent = 'ME';
+          mainDiv.appendChild(mePill);
+        }
+
+        const rightDiv = document.createElement('div');
+        rightDiv.className = 'rank-right';
+        const scoreSpan = document.createElement('span');
+        scoreSpan.className = 'rank-score';
+        scoreSpan.textContent = `${row.score.toLocaleString()}점`;
+        const timeSpan = document.createElement('span');
+        timeSpan.className = 'rank-time';
+        timeSpan.textContent = `생존 ${formatTime(row.timeSec)}`;
+        rightDiv.append(scoreSpan, timeSpan);
+
+        li.append(badgeWrap, mainDiv, rightDiv);
+        listEl.appendChild(li);
+      });
+
+      if (myEl) {
+        setTimeout(() => {
+          myEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 60);
+      } else {
+        this.dom.rankingScrollArea.scrollTop = 0;
+      }
+    }
+
+    async _handleRankSubmit() {
+      if (this.dom.btnSubmitRank.disabled) return;
+      const rawName = this.dom.rankNickname.value;
+      this.dom.btnSubmitRank.disabled = true;
+      this.dom.btnSubmitRank.textContent = '등록 중...';
+
+      const res = await this.leaderboard.submitScore(rawName, this.score, this.elapsed);
+      this.dom.rankSubmitStatus.classList.remove('hidden');
+
+      if (res.alreadyHigher) {
+        this.dom.rankSubmitStatus.textContent = `이미 더 높은 최고 기록(${res.existingScore.toLocaleString()}점)이 등록되어 있습니다!`;
+        this.dom.btnSubmitRank.textContent = '확인됨';
+      } else {
+        const rankText = res.rank ? `현재 ${res.rank}등` : '등록 완료';
+        this.dom.rankSubmitStatus.textContent = `✅ '${res.name}' 기록 반영 완료! (${rankText})`;
+        this.dom.btnSubmitRank.textContent = '등록 완료';
+        if (res.rank && res.rank <= 10) {
+          this.audio.stageClear();
+        }
+      }
+
+      await this._refreshGlobalRankings(res.name.toLowerCase());
+      await this.openRankingModal(res.name.toLowerCase());
+    }
+
+    _setupDragScroll(el) {
+      if (!el) return;
+      let isDown = false;
+      let startY = 0;
+      let startTop = 0;
+
+      el.addEventListener('mousedown', (e) => {
+        isDown = true;
+        startY = e.clientY;
+        startTop = el.scrollTop;
+        el.classList.add('dragging');
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (!isDown) return;
+        const dy = e.clientY - startY;
+        el.scrollTop = startTop - dy;
+      });
+
+      window.addEventListener('mouseup', () => {
+        if (!isDown) return;
+        isDown = false;
+        el.classList.remove('dragging');
+      });
     }
 
     _buildAimGuide() {
