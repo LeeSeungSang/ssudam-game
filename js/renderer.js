@@ -141,6 +141,17 @@ window.Ssudam = window.Ssudam || {};
       this.cssW = WORLD_W;
       this.cssH = WORLD_H;
       this.dpr = 1;
+
+      // Offscreen cache for static station & 144 plaza tiles
+      this._bgCanvas = document.createElement('canvas');
+      this._bgCanvas.width = WORLD_W;
+      this._bgCanvas.height = WORLD_H;
+      this._bgCtx = this._bgCanvas.getContext('2d');
+      this._bgKey = '';
+
+      // Reusable sortable drawables list (no closure allocation per frame)
+      this._drawables = [];
+
       this.resize();
     }
 
@@ -150,7 +161,9 @@ window.Ssudam = window.Ssudam || {};
         : { width: window.innerWidth, height: window.innerHeight };
       this.cssW = Math.max(300, Math.floor(rect.width));
       this.cssH = Math.max(240, Math.floor(rect.height));
-      this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const area = this.cssW * this.cssH;
+      const maxDpr = area > 1100000 ? 1.25 : 1.5;
+      this.dpr = Math.min(window.devicePixelRatio || 1, maxDpr);
       this.canvas.width = Math.floor(this.cssW * this.dpr);
       this.canvas.height = Math.floor(this.cssH * this.dpr);
     }
@@ -182,7 +195,14 @@ window.Ssudam = window.Ssudam || {};
     render(state) {
       const ctx = this.ctx;
       const vp = ns.getViewportTransform(this.cssW, this.cssH);
-      const pal = this._getPalette(state.theme, state.cyclePhase || 0);
+      const quantPhase = Math.floor(((state.cyclePhase || 0) % 1) * 32) / 32;
+      const bgKey = state.theme === 'cycle' ? `cycle_${quantPhase}` : state.theme;
+      const pal = this._getPalette(state.theme, state.theme === 'cycle' ? quantPhase : 0);
+
+      if (bgKey !== this._bgKey) {
+        this._bgKey = bgKey;
+        this._bakeStaticBackground(pal);
+      }
 
       ctx.save();
       ctx.scale(this.dpr, this.dpr);
@@ -193,9 +213,9 @@ window.Ssudam = window.Ssudam || {};
       ctx.translate(vp.offsetX + state.shake.x * vp.scale, vp.offsetY + state.shake.y * vp.scale);
       ctx.scale(vp.scale, vp.scale);
 
-      this._drawSuwonStation(ctx, pal, state.time);
-      this._drawPlaza(ctx, pal, state);
-      this._drawSmartBin(ctx, state.smartBin, pal, state.time);
+      ctx.drawImage(this._bgCanvas, 0, 0);
+      this._drawDynamicBackdropOverlays(ctx, pal, state);
+      this._drawSmartBin(ctx, state.smartBin);
       this._drawHumanBin(ctx, state.humanBin, pal, state.time);
 
       this._drawRobotGroundGuides(ctx, state);
@@ -204,61 +224,58 @@ window.Ssudam = window.Ssudam || {};
         this._drawAimGuide(ctx, state.aimGuide);
       }
 
-      const drawables = [];
+      const drawables = this._drawables;
+      drawables.length = 0;
 
-      for (const tr of state.trashes) {
-        if (tr.held) continue;
-        drawables.push({
-          sortY: tr.y,
-          draw: () => this._drawTrash(ctx, tr, state.time),
-        });
+      for (let i = 0; i < state.trashes.length; i++) {
+        const tr = state.trashes[i];
+        if (!tr.held) drawables.push({ kind: 0, sortY: tr.y, item: tr });
       }
-
-      for (const p of state.people) {
-        if (p.held) continue;
-        drawables.push({
-          sortY: p.y,
-          draw: () => this._drawPerson(ctx, p, state.time),
-        });
+      for (let i = 0; i < state.people.length; i++) {
+        const p = state.people[i];
+        if (!p.held) drawables.push({ kind: 1, sortY: p.y, item: p });
       }
-
       if (state.helpers) {
-        for (const h of state.helpers) {
-          drawables.push({
-            sortY: h.y,
-            draw: () => this._drawHelperWorker(ctx, h, state.isNight, state.time),
-          });
+        for (let i = 0; i < state.helpers.length; i++) {
+          const h = state.helpers[i];
+          drawables.push({ kind: 2, sortY: h.y, item: h });
         }
       }
-
-      drawables.push({
-        sortY: state.robot.y,
-        draw: () => this._drawRobot(ctx, state.robot, state),
-      });
+      drawables.push({ kind: 3, sortY: state.robot.y, item: state.robot });
 
       drawables.sort((a, b) => a.sortY - b.sortY);
-      for (const d of drawables) {
-        d.draw();
+      for (let i = 0; i < drawables.length; i++) {
+        const d = drawables[i];
+        switch (d.kind) {
+          case 0:
+            this._drawTrash(ctx, d.item, state.time);
+            break;
+          case 1:
+            this._drawPerson(ctx, d.item, state.time);
+            break;
+          case 2:
+            this._drawHelperWorker(ctx, d.item, state.isNight, state.time);
+            break;
+          default:
+            this._drawRobot(ctx, d.item, state);
+            break;
+        }
       }
 
       this._drawParticles(ctx, state.particles);
       this._drawPopups(ctx, state.popups);
 
       if (state.feverActive) {
-        ctx.save();
         ctx.strokeStyle = `rgba(250, 204, 21, ${0.45 + 0.25 * Math.sin(state.time * 10)})`;
         ctx.lineWidth = 10;
         ctx.strokeRect(5, 5, WORLD_W - 10, WORLD_H - 10);
-        ctx.restore();
       }
 
       if (state.overloadRatio >= 0.7) {
         const pulse = 0.16 + 0.12 * Math.sin(state.time * 9);
-        ctx.save();
         ctx.strokeStyle = `rgba(239, 68, 68, ${pulse * 2.2})`;
         ctx.lineWidth = 16;
         ctx.strokeRect(8, 8, WORLD_W - 16, WORLD_H - 16);
-        ctx.restore();
       }
 
       ctx.restore();
@@ -268,6 +285,58 @@ window.Ssudam = window.Ssudam || {};
       }
 
       ctx.restore();
+    }
+
+    _bakeStaticBackground(pal) {
+      const bctx = this._bgCtx;
+      bctx.clearRect(0, 0, WORLD_W, WORLD_H);
+      this._drawSuwonStationStatic(bctx, pal);
+      this._drawPlazaStatic(bctx, pal);
+    }
+
+    _drawDynamicBackdropOverlays(ctx, pal, state) {
+      const time = state.time;
+      // Twinkling night stars
+      if (pal.neonAlpha > 0.25) {
+        const starSeeds = [90, 180, 260, 420, 560, 740, 890, 1020, 1140, 1210];
+        ctx.fillStyle = '#ffffff';
+        for (let i = 0; i < starSeeds.length; i++) {
+          const twinkle = 0.45 + 0.55 * Math.sin(time * 2.5 + i * 1.7);
+          ctx.globalAlpha = pal.neonAlpha * twinkle * 0.8;
+          ctx.beginPath();
+          ctx.arc(starSeeds[i], 22 + ((i * 29) % 55), 1.8, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      // Halloween flying bats
+      if (pal.halloweenAlpha > 0.15) {
+        ctx.globalAlpha = pal.halloweenAlpha;
+        ctx.strokeStyle = '#09090b';
+        ctx.lineWidth = 3;
+        for (let i = 0; i < 4; i++) {
+          const bx = ((time * (48 + i * 14) + i * 310) % (WORLD_W + 120)) - 60;
+          const by = 42 + i * 18 + Math.sin(time * 3 + i) * 10;
+          const flap = Math.sin(time * 12 + i * 2) * 7;
+          ctx.beginPath();
+          ctx.moveTo(bx - 12, by - flap);
+          ctx.quadraticCurveTo(bx - 5, by - 5, bx, by);
+          ctx.quadraticCurveTo(bx + 5, by - 5, bx + 12, by - flap);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      // Highlight yeet zone hint when holding a culprit
+      const holdingCulprit =
+        state.robot.held && state.robot.held.kind === 'person' && state.robot.held.entity.isCulprit;
+      if (holdingCulprit) {
+        ctx.fillStyle = `rgba(239, 68, 68, ${0.16 + 0.1 * Math.sin(time * 8)})`;
+        ctx.fillRect(0, PLAZA.top, PLAZA.left, PLAZA.bottom - PLAZA.top);
+        ctx.fillRect(PLAZA.right, PLAZA.top, WORLD_W - PLAZA.right, PLAZA.bottom - PLAZA.top);
+        ctx.fillRect(0, PLAZA.bottom, WORLD_W, WORLD_H - PLAZA.bottom);
+      }
     }
 
     _drawFullBleedBackdrop(ctx, vp, pal) {
@@ -282,58 +351,34 @@ window.Ssudam = window.Ssudam || {};
       ctx.fillRect(0, Math.max(0, splitY), this.cssW, this.cssH - Math.max(0, splitY));
     }
 
-    _drawSuwonStation(ctx, pal, time) {
+    _drawSuwonStationStatic(ctx, pal) {
       const sky = ctx.createLinearGradient(0, 0, 0, 232);
       sky.addColorStop(0, pal.skyTop);
       sky.addColorStop(1, pal.skyBot);
       ctx.fillStyle = sky;
       ctx.fillRect(0, 0, WORLD_W, 232);
 
-      // Stars & Full Moon at night/halloween
-      if (pal.neonAlpha > 0.25) {
-        ctx.save();
-        const starSeeds = [90, 180, 260, 420, 560, 740, 890, 1020, 1140, 1210];
-        ctx.fillStyle = '#ffffff';
-        for (let i = 0; i < starSeeds.length; i++) {
-          const twinkle = 0.45 + 0.55 * Math.sin(time * 2.5 + i * 1.7);
-          ctx.globalAlpha = pal.neonAlpha * twinkle * 0.8;
-          ctx.beginPath();
-          ctx.arc(starSeeds[i], 22 + ((i * 29) % 55), 1.8, 0, Math.PI * 2);
-          ctx.fill();
-        }
-        ctx.restore();
-      }
-
-      // Halloween Full Moon + Flying Bats
+      // Halloween Full Moon (cheap radial glow instead of shadowBlur)
       if (pal.halloweenAlpha > 0.15) {
         ctx.save();
         ctx.globalAlpha = pal.halloweenAlpha;
+        const halo = ctx.createRadialGradient(1070, 58, 22, 1070, 58, 62);
+        halo.addColorStop(0, 'rgba(250, 204, 21, 0.5)');
+        halo.addColorStop(1, 'rgba(250, 204, 21, 0)');
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(1070, 58, 62, 0, Math.PI * 2);
+        ctx.fill();
+
         ctx.fillStyle = '#fef08a';
-        ctx.shadowColor = '#facc15';
-        ctx.shadowBlur = 28;
         ctx.beginPath();
         ctx.arc(1070, 58, 30, 0, Math.PI * 2);
         ctx.fill();
-        ctx.shadowBlur = 0;
         ctx.fillStyle = 'rgba(234, 179, 8, 0.25)';
         ctx.beginPath();
         ctx.arc(1062, 52, 7, 0, Math.PI * 2);
         ctx.arc(1078, 66, 5, 0, Math.PI * 2);
         ctx.fill();
-
-        // Bats flapping across the moon & sky
-        ctx.strokeStyle = '#09090b';
-        ctx.lineWidth = 3;
-        for (let i = 0; i < 4; i++) {
-          const bx = ((time * (48 + i * 14) + i * 310) % (WORLD_W + 120)) - 60;
-          const by = 42 + i * 18 + Math.sin(time * 3 + i) * 10;
-          const flap = Math.sin(time * 12 + i * 2) * 7;
-          ctx.beginPath();
-          ctx.moveTo(bx - 12, by - flap);
-          ctx.quadraticCurveTo(bx - 5, by - 5, bx, by);
-          ctx.quadraticCurveTo(bx + 5, by - 5, bx + 12, by - flap);
-          ctx.stroke();
-        }
         ctx.restore();
       }
 
@@ -394,8 +439,10 @@ window.Ssudam = window.Ssudam || {};
       const signY = 50;
       ctx.save();
       if (pal.neonAlpha > 0.2) {
-        ctx.shadowColor = pal.halloweenAlpha > 0.4 ? '#f97316' : '#ec4899';
-        ctx.shadowBlur = 18 * pal.neonAlpha;
+        ctx.strokeStyle = pal.halloweenAlpha > 0.4 ? 'rgba(249, 115, 22, 0.4)' : 'rgba(236, 72, 153, 0.4)';
+        ctx.lineWidth = 8;
+        this._roundRect(ctx, signX - 2, signY - 2, signW + 4, signH + 4, 12);
+        ctx.stroke();
       }
       ctx.fillStyle = pal.halloweenAlpha > 0.4 ? '#2e1065' : '#0B2A5B';
       this._roundRect(ctx, signX, signY, signW, signH, 10);
@@ -472,7 +519,7 @@ window.Ssudam = window.Ssudam || {};
       }
     }
 
-    _drawPlaza(ctx, pal, state) {
+    _drawPlazaStatic(ctx, pal) {
       ctx.fillStyle = pal.plazaEdge;
       ctx.fillRect(0, 226, WORLD_W, WORLD_H - 226);
 
@@ -508,16 +555,12 @@ window.Ssudam = window.Ssudam || {};
       ctx.strokeRect(PLAZA.left, PLAZA.top, PLAZA.right - PLAZA.left, PLAZA.bottom - PLAZA.top);
       ctx.setLineDash([]);
 
-      const holdingCulprit =
-        state.robot.held && state.robot.held.kind === 'person' && state.robot.held.entity.isCulprit;
-      ctx.fillStyle = holdingCulprit
-        ? `rgba(239, 68, 68, ${0.18 + 0.1 * Math.sin(state.time * 8)})`
-        : 'rgba(239, 68, 68, 0.06)';
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.06)';
       ctx.fillRect(0, PLAZA.top, PLAZA.left, PLAZA.bottom - PLAZA.top);
       ctx.fillRect(PLAZA.right, PLAZA.top, WORLD_W - PLAZA.right, PLAZA.bottom - PLAZA.top);
       ctx.fillRect(0, PLAZA.bottom, WORLD_W, WORLD_H - PLAZA.bottom);
 
-      ctx.fillStyle = holdingCulprit ? '#dc2626' : 'rgba(220, 38, 38, 0.65)';
+      ctx.fillStyle = 'rgba(220, 38, 38, 0.7)';
       ctx.font = '800 14px "Pretendard", sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('⚾ 광장 밖 홈런 투척 ZONE (투기자 추방!)', WORLD_W * 0.5, PLAZA.bottom + 26);
@@ -556,16 +599,11 @@ window.Ssudam = window.Ssudam || {};
       ];
       slots.forEach((s, idx) => {
         const isFlashing = bin.flashTimer > 0 && bin.flashIndex === idx;
-        ctx.save();
-        if (isFlashing) {
-          ctx.shadowColor = '#fde047';
-          ctx.shadowBlur = 16;
-        }
         ctx.fillStyle = s.color;
         this._roundRect(ctx, s.x - 22, -26, 44, 56, 6);
         ctx.fill();
-        ctx.strokeStyle = isFlashing ? '#ffffff' : 'rgba(0,0,0,0.22)';
-        ctx.lineWidth = isFlashing ? 3 : 1.5;
+        ctx.strokeStyle = isFlashing ? '#fde047' : 'rgba(0,0,0,0.22)';
+        ctx.lineWidth = isFlashing ? 3.5 : 1.5;
         ctx.stroke();
 
         ctx.fillStyle = '#0f172a';
@@ -576,7 +614,6 @@ window.Ssudam = window.Ssudam || {};
         ctx.font = '800 10.5px "Pretendard", sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText(s.label, s.x, 18);
-        ctx.restore();
       });
 
       ctx.fillStyle = '#0B2A5B';
@@ -684,24 +721,20 @@ window.Ssudam = window.Ssudam || {};
       const robot = state.robot;
       ctx.save();
 
-      // Vacuum spinning suction vortex field!
+      // Vacuum spinning suction vortex field (body-sized!)
       if (state.vacuumActive) {
-        const rad = state.vacuumRadius || 126;
-        const grad = ctx.createRadialGradient(robot.x, robot.y, 18, robot.x, robot.y, rad);
-        grad.addColorStop(0, 'rgba(56, 189, 248, 0.28)');
-        grad.addColorStop(0.7, 'rgba(56, 189, 248, 0.14)');
-        grad.addColorStop(1, 'rgba(56, 189, 248, 0)');
-        ctx.fillStyle = grad;
+        const rad = state.vacuumRadius || 48;
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.24)';
         ctx.beginPath();
         ctx.arc(robot.x, robot.y, rad, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.strokeStyle = 'rgba(125, 211, 252, 0.72)';
+        ctx.strokeStyle = 'rgba(125, 211, 252, 0.85)';
         ctx.lineWidth = 3;
-        for (let k = 0; k < 3; k++) {
-          const baseAng = state.time * 7 + (k * Math.PI * 2) / 3;
+        for (let k = 0; k < 2; k++) {
+          const baseAng = state.time * 8 + k * Math.PI;
           ctx.beginPath();
-          ctx.arc(robot.x, robot.y, rad * (0.45 + k * 0.22), baseAng, baseAng + Math.PI * 0.75);
+          ctx.arc(robot.x, robot.y, rad * (0.68 + k * 0.28), baseAng, baseAng + Math.PI * 0.8);
           ctx.stroke();
         }
       }
@@ -1354,11 +1387,15 @@ window.Ssudam = window.Ssudam || {};
         ctx.restore();
       }
 
-      // Speech Bubble
+      // Speech Bubble (cached width)
       if (p.bubbleText && p.bubbleTimer > 0) {
         ctx.save();
         ctx.font = '800 12px "Pretendard", sans-serif';
-        const tw = ctx.measureText(p.bubbleText).width + 16;
+        if (p._bubbleCachedText !== p.bubbleText) {
+          p._bubbleCachedText = p.bubbleText;
+          p._bubbleW = ctx.measureText(p.bubbleText).width + 16;
+        }
+        const tw = p._bubbleW;
         ctx.fillStyle = p.angry ? '#fee2e2' : '#ffffff';
         ctx.strokeStyle = p.angry ? '#dc2626' : '#0f172a';
         ctx.lineWidth = 2;
@@ -1634,10 +1671,14 @@ window.Ssudam = window.Ssudam || {};
         ctx.fillText('★', rx, ey + 4);
       } else {
         const color = eyeMode === 'danger' ? '#ef4444' : eyeMode === 'chase' ? '#fbbf24' : '#7dd3fc';
-        ctx.fillStyle = color;
-        ctx.shadowColor = color;
-        ctx.shadowBlur = 7;
         const h = blink ? 2 : eyeMode === 'chase' ? 6 : 9;
+        ctx.globalAlpha = 0.28;
+        ctx.fillStyle = color;
+        this._roundRect(ctx, lx - 5.5, ey - h * 0.5 - 1.5, 11, h + 3, 3.5);
+        ctx.fill();
+        this._roundRect(ctx, rx - 5.5, ey - h * 0.5 - 1.5, 11, h + 3, 3.5);
+        ctx.fill();
+        ctx.globalAlpha = 1;
         this._roundRect(ctx, lx - 4, ey - h * 0.5, 8, h, 2.5);
         ctx.fill();
         this._roundRect(ctx, rx - 4, ey - h * 0.5, 8, h, 2.5);
@@ -1756,9 +1797,9 @@ window.Ssudam = window.Ssudam || {};
     }
 
     _drawParticles(ctx, particles) {
-      for (const pt of particles) {
+      for (let i = 0; i < particles.length; i++) {
+        const pt = particles[i];
         const alpha = Math.max(0, pt.life / pt.maxLife);
-        ctx.save();
         ctx.globalAlpha = alpha;
         const y = pt.y - (pt.z || 0);
         if (pt.kind === 'ring') {
@@ -1780,8 +1821,8 @@ window.Ssudam = window.Ssudam || {};
           ctx.arc(pt.x, y, pt.size * (pt.kind === 'smoke' || pt.kind === 'dust' ? 1.55 - alpha * 0.5 : 1), 0, Math.PI * 2);
           ctx.fill();
         }
-        ctx.restore();
       }
+      ctx.globalAlpha = 1;
     }
 
     _drawPopups(ctx, popups) {

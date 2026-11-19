@@ -3,6 +3,7 @@ window.Ssudam = window.Ssudam || {};
 (function (ns) {
   const {
     WORLD_W,
+    WORLD_H,
     PLAZA,
     SMART_BIN,
     HUMAN_BIN,
@@ -170,6 +171,7 @@ window.Ssudam = window.Ssudam || {};
       this.people = [];
       this.particles = [];
       this.popups = [];
+      this._hudCache = {};
 
       this._bindUI();
       this._refreshTitleScores();
@@ -222,11 +224,15 @@ window.Ssudam = window.Ssudam || {};
       });
 
       this.dom.btnMute.addEventListener('click', () => {
+        this.dom.btnMute.blur();
         const muted = this.audio.toggleMute();
         this.dom.btnMute.textContent = muted ? '🔇' : '🔊';
       });
 
-      this.dom.btnPause.addEventListener('click', () => this.togglePause());
+      this.dom.btnPause.addEventListener('click', () => {
+        this.dom.btnPause.blur();
+        this.togglePause();
+      });
       this.dom.btnResume.addEventListener('click', () => this.togglePause());
       this.dom.btnRestartPause.addEventListener('click', () => this.startStage(this.currentStageId));
       this.dom.btnMenuPause.addEventListener('click', () => this.returnToTitle());
@@ -258,10 +264,12 @@ window.Ssudam = window.Ssudam || {};
         { passive: true }
       );
       this.dom.btnVacuum.addEventListener('click', () => {
+        this.dom.btnVacuum.blur();
         this.audio.unlock();
         this.activateVacuum();
       });
       this.dom.btnHelper.addEventListener('click', () => {
+        this.dom.btnHelper.blur();
         this.audio.unlock();
         this.activateHelper();
       });
@@ -380,6 +388,7 @@ window.Ssudam = window.Ssudam || {};
       this.people = [];
       this.particles = [];
       this.popups = [];
+      this._hudCache = {};
 
       this.smartBin.bounce = 0;
       this.smartBin.flashTimer = 0;
@@ -487,22 +496,26 @@ window.Ssudam = window.Ssudam || {};
     }
 
     _loop(now) {
+      requestAnimationFrame((next) => this._loop(next));
       const dt = Math.min(0.05, Math.max(0.001, (now - this._lastFrame) / 1000));
       this._lastFrame = now;
       this.time += dt;
 
-      if (this.mode === 'TITLE') {
-        this._updateIdlePeople(dt);
-        this._updateRobotIdleVisuals(dt);
-      } else if (this.mode === 'PLAYING') {
-        this._updatePlaying(dt);
-      } else if (this.mode === 'BREAKING_DOWN') {
-        this._updateBreakdown(dt);
-      }
+      try {
+        if (this.mode === 'TITLE') {
+          this._updateIdlePeople(dt);
+          this._updateRobotIdleVisuals(dt);
+        } else if (this.mode === 'PLAYING') {
+          this._updatePlaying(dt);
+        } else if (this.mode === 'BREAKING_DOWN') {
+          this._updateBreakdown(dt);
+        }
 
-      const state = this._buildRenderState();
-      this.renderer.render(state);
-      requestAnimationFrame((next) => this._loop(next));
+        const state = this._buildRenderState();
+        this.renderer.render(state);
+      } catch (err) {
+        console.error('SsudamGame loop error:', err);
+      }
     }
 
     _updateIdlePeople(dt) {
@@ -598,12 +611,12 @@ window.Ssudam = window.Ssudam || {};
         const dy = this.robot.y - tr.y;
         const dist = Math.hypot(dx, dy);
         if (dist <= vacRad) {
-          if (dist <= 42) {
+          if (dist <= 38) {
             this.trashes.splice(i, 1);
             this.audio.vacuumSuck();
             this._rewardTrash(tr, false, true);
           } else {
-            const pullSpeed = 480;
+            const pullSpeed = 420;
             tr.x += (dx / dist) * pullSpeed * dt;
             tr.y += (dy / dist) * pullSpeed * dt;
             tr.rot += 12 * dt;
@@ -622,11 +635,11 @@ window.Ssudam = window.Ssudam || {};
       // Emit dust & clean sparkles along broom line
       this.helperDustTimer -= dt;
       if (this.helperDustTimer <= 0) {
-        this.helperDustTimer = 0.06;
+        this.helperDustTimer = 0.1;
         for (const h of this.helpers) {
-          this._spawnParticle(h.x - 24, h.y + 8, 6, '#d6d3d1', randRange(5, 8.5), 0.48, 'dust');
-          if (Math.random() < 0.45) {
-            this._spawnParticle(h.x - 22, h.y + 4, 14, '#fde047', 3.5, 0.38, 'confetti');
+          this._spawnParticle(h.x - 24, h.y + 8, 6, '#d6d3d1', randRange(5, 8.5), 0.44, 'dust');
+          if (Math.random() < 0.35) {
+            this._spawnParticle(h.x - 22, h.y + 4, 14, '#fde047', 3.5, 0.35, 'confetti');
           }
         }
       }
@@ -661,7 +674,7 @@ window.Ssudam = window.Ssudam || {};
       const feverMul = this.feverActive ? 2 : 1;
       const gained = base * feverMul;
       this.score += gained;
-      this._burstConfetti(tr.x, tr.y, '#4ade80', 5);
+      this._burstConfetti(tr.x, tr.y, '#4ade80', 2);
     }
 
     _updateRobot(dt) {
@@ -821,7 +834,7 @@ window.Ssudam = window.Ssudam || {};
 
     _throwHostileTrashAtRobot(person) {
       const ctxInfo = this._getCurrentStageContext();
-      const nonRarePool = ctxInfo.trashPool.filter((id) => !TRASH_TYPES[id].isRare);
+      const nonRarePool = ctxInfo.trashPool.filter((id) => TRASH_TYPES[id] && !TRASH_TYPES[id].isRare);
       const chosenType = pickRandom(nonRarePool.length ? nonRarePool : ['can', 'bottle']);
 
       const startX = person.x;
@@ -1493,9 +1506,10 @@ window.Ssudam = window.Ssudam || {};
         if (dBin <= 480) {
           this._throwHeldTo(SMART_BIN.x, SMART_BIN.y, 0.85);
         } else {
+          const safeDist = Math.max(1, dBin);
           const dx = SMART_BIN.x - this.robot.x;
           const dy = SMART_BIN.y - this.robot.y;
-          this._throwHeldTo(this.robot.x + (dx / dBin) * 440, this.robot.y + (dy / dBin) * 440, 0.9);
+          this._throwHeldTo(this.robot.x + (dx / safeDist) * 440, this.robot.y + (dy / safeDist) * 440, 0.9);
         }
       } else if (held.kind === 'person' && held.entity.isCulprit) {
         const dHuman = Math.hypot(this.robot.x - HUMAN_BIN.x, this.robot.y - HUMAN_BIN.y);
@@ -1873,6 +1887,10 @@ window.Ssudam = window.Ssudam || {};
     }
 
     _spawnParticle(x, y, z, color, size, life, kind = 'confetti') {
+      if (this.particles.length >= 110) {
+        if (kind === 'confetti' || kind === 'dust') return;
+        this.particles.shift();
+      }
       const ang = randRange(0, Math.PI * 2);
       const spd = kind === 'smoke' || kind === 'dust' ? randRange(12, 38) : randRange(65, 190);
       this.particles.push({
@@ -1899,6 +1917,9 @@ window.Ssudam = window.Ssudam || {};
     }
 
     _spawnPopup(x, y, text, color = '#fde047', scale = 1) {
+      if (this.popups.length >= 14) {
+        this.popups.shift();
+      }
       this.popups.push({
         x,
         y,
@@ -1947,46 +1968,96 @@ window.Ssudam = window.Ssudam || {};
     }
 
     _syncHud() {
-      if (this.stage.endless) {
-        this.dom.hudTimer.textContent = `생존 ${formatTime(this.elapsed)}`;
-      } else {
-        const rem = Math.max(0, this.stage.duration - this.elapsed);
-        this.dom.hudTimer.textContent = formatTime(rem);
+      const c = this._hudCache;
+      const timerStr = this.stage.endless
+        ? `생존 ${formatTime(this.elapsed)}`
+        : formatTime(Math.max(0, this.stage.duration - this.elapsed));
+      if (c.timerStr !== timerStr) {
+        c.timerStr = timerStr;
+        this.dom.hudTimer.textContent = timerStr;
       }
 
-      this.dom.hudScore.textContent = this.score.toLocaleString();
+      if (c.score !== this.score) {
+        c.score = this.score;
+        this.dom.hudScore.textContent = this.score.toLocaleString();
+      }
 
-      if (this.comboCount >= 2) {
+      const showCombo = this.comboCount >= 2;
+      if (c.showCombo !== showCombo) {
+        c.showCombo = showCombo;
+        this.dom.hudCombo.classList.toggle('hidden', !showCombo);
+      }
+      if (showCombo && c.comboCount !== this.comboCount) {
+        c.comboCount = this.comboCount;
         const mult = Math.min(COMBO.maxMultiplier, 1 + (this.comboCount - 1) * COMBO.step);
         this.dom.hudCombo.textContent = `${this.comboCount} COMBO (x${mult.toFixed(1)})`;
-        this.dom.hudCombo.classList.remove('hidden');
-      } else {
-        this.dom.hudCombo.classList.add('hidden');
       }
 
       const ovPct = Math.round(this.overloadRatio * 100);
-      this.dom.hudOverloadText.textContent = `${ovPct}%`;
-      this.dom.hudOverloadFill.style.width = `${ovPct}%`;
-      this.dom.hudOverloadBox.classList.toggle('danger', this.overloadRatio >= 0.7);
+      if (c.ovPct !== ovPct) {
+        c.ovPct = ovPct;
+        this.dom.hudOverloadText.textContent = `${ovPct}%`;
+        this.dom.hudOverloadFill.style.width = `${ovPct}%`;
+      }
+      const isDanger = this.overloadRatio >= 0.7;
+      if (c.isDanger !== isDanger) {
+        c.isDanger = isDanger;
+        this.dom.hudOverloadBox.classList.toggle('danger', isDanger);
+      }
 
       const feverMax = this._getCurrentFeverMax();
       const fvPct = Math.min(100, Math.round((this.feverGauge / feverMax) * 100));
-      this.dom.hudFeverText.textContent = this.feverActive ? 'FEVER x2!' : `${fvPct}%`;
-      this.dom.hudFeverFill.style.width = `${fvPct}%`;
-      this.dom.hudFeverBox.classList.toggle('fever-active', this.feverActive);
+      const fvText = this.feverActive ? 'FEVER x2!' : `${fvPct}%`;
+      if (c.fvText !== fvText) {
+        c.fvText = fvText;
+        this.dom.hudFeverText.textContent = fvText;
+      }
+      if (c.fvPct !== fvPct) {
+        c.fvPct = fvPct;
+        this.dom.hudFeverFill.style.width = `${fvPct}%`;
+      }
+      if (c.feverActive !== this.feverActive) {
+        c.feverActive = this.feverActive;
+        this.dom.hudFeverBox.classList.toggle('fever-active', this.feverActive);
+      }
 
       // Sync Skill Dock
-      this.dom.vacuumCount.textContent =
-        this.vacuumTimer > 0 ? `${this.vacuumTimer.toFixed(1)}초` : `${this.vacuumCharges} / ${SKILLS.vacuumMax}`;
-      this.dom.btnVacuum.disabled = this.vacuumCharges <= 0 && this.vacuumTimer <= 0;
-      this.dom.btnVacuum.classList.toggle('active', this.vacuumTimer > 0);
-      this.dom.vacuumActiveBar.style.width =
-        this.vacuumTimer > 0 ? `${(this.vacuumTimer / SKILLS.vacuumDuration) * 100}%` : '0%';
+      const vacActive = this.vacuumTimer > 0;
+      const vacText = vacActive ? `${this.vacuumTimer.toFixed(1)}초` : `${this.vacuumCharges} / ${SKILLS.vacuumMax}`;
+      if (c.vacText !== vacText) {
+        c.vacText = vacText;
+        this.dom.vacuumCount.textContent = vacText;
+      }
+      const vacDisabled = this.vacuumCharges <= 0 && !vacActive;
+      if (c.vacDisabled !== vacDisabled) {
+        c.vacDisabled = vacDisabled;
+        this.dom.btnVacuum.disabled = vacDisabled;
+      }
+      if (c.vacActive !== vacActive) {
+        c.vacActive = vacActive;
+        this.dom.btnVacuum.classList.toggle('active', vacActive);
+      }
+      const vacBarPct = vacActive ? Math.round((this.vacuumTimer / SKILLS.vacuumDuration) * 100) : 0;
+      if (c.vacBarPct !== vacBarPct) {
+        c.vacBarPct = vacBarPct;
+        this.dom.vacuumActiveBar.style.width = `${vacBarPct}%`;
+      }
 
-      this.dom.helperCount.textContent =
-        this.helpers.length > 0 ? '청소 중!' : `${this.helperCharges} / ${SKILLS.helperMax}`;
-      this.dom.btnHelper.disabled = this.helperCharges <= 0 || this.helpers.length > 0;
-      this.dom.btnHelper.classList.toggle('active', this.helpers.length > 0);
+      const helperRunning = this.helpers.length > 0;
+      const helperText = helperRunning ? '청소 중!' : `${this.helperCharges} / ${SKILLS.helperMax}`;
+      if (c.helperText !== helperText) {
+        c.helperText = helperText;
+        this.dom.helperCount.textContent = helperText;
+      }
+      const helperDisabled = this.helperCharges <= 0 || helperRunning;
+      if (c.helperDisabled !== helperDisabled) {
+        c.helperDisabled = helperDisabled;
+        this.dom.btnHelper.disabled = helperDisabled;
+      }
+      if (c.helperRunning !== helperRunning) {
+        c.helperRunning = helperRunning;
+        this.dom.btnHelper.classList.toggle('active', helperRunning);
+      }
     }
 
     _buildAimGuide() {
