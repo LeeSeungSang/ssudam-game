@@ -194,14 +194,24 @@ window.Ssudam = window.Ssudam || {};
 
     render(state) {
       const ctx = this.ctx;
-      const vp = ns.getViewportTransform(this.cssW, this.cssH);
+      const layout = state.layout || ns.CONFIG.LANDSCAPE_LAYOUT;
+      const vp = ns.getViewportTransform(this.cssW, this.cssH, layout);
+      const W = layout.WORLD_W;
+      const H = layout.WORLD_H;
+
+      if (this._bgCanvas.width !== W || this._bgCanvas.height !== H) {
+        this._bgCanvas.width = W;
+        this._bgCanvas.height = H;
+        this._bgKey = '';
+      }
+
       const quantPhase = Math.floor(((state.cyclePhase || 0) % 1) * 32) / 32;
-      const bgKey = state.theme === 'cycle' ? `cycle_${quantPhase}` : state.theme;
+      const bgKey = `${layout.mode}_${state.theme === 'cycle' ? `cycle_${quantPhase}` : state.theme}`;
       const pal = this._getPalette(state.theme, state.theme === 'cycle' ? quantPhase : 0);
 
       if (bgKey !== this._bgKey) {
         this._bgKey = bgKey;
-        this._bakeStaticBackground(pal);
+        this._bakeStaticBackground(pal, layout);
       }
 
       ctx.save();
@@ -214,7 +224,7 @@ window.Ssudam = window.Ssudam || {};
       ctx.scale(vp.scale, vp.scale);
 
       ctx.drawImage(this._bgCanvas, 0, 0);
-      this._drawDynamicBackdropOverlays(ctx, pal, state);
+      this._drawDynamicBackdropOverlays(ctx, pal, state, layout);
       this._drawSmartBin(ctx, state.smartBin);
       this._drawHumanBin(ctx, state.humanBin, pal, state.time);
 
@@ -268,14 +278,14 @@ window.Ssudam = window.Ssudam || {};
       if (state.feverActive) {
         ctx.strokeStyle = `rgba(250, 204, 21, ${0.45 + 0.25 * Math.sin(state.time * 10)})`;
         ctx.lineWidth = 10;
-        ctx.strokeRect(5, 5, WORLD_W - 10, WORLD_H - 10);
+        ctx.strokeRect(5, 5, W - 10, H - 10);
       }
 
       if (state.overloadRatio >= 0.7) {
         const pulse = 0.16 + 0.12 * Math.sin(state.time * 9);
         ctx.strokeStyle = `rgba(239, 68, 68, ${pulse * 2.2})`;
         ctx.lineWidth = 16;
-        ctx.strokeRect(8, 8, WORLD_W - 16, WORLD_H - 16);
+        ctx.strokeRect(8, 8, W - 16, H - 16);
       }
 
       ctx.restore();
@@ -287,18 +297,23 @@ window.Ssudam = window.Ssudam || {};
       ctx.restore();
     }
 
-    _bakeStaticBackground(pal) {
+    _bakeStaticBackground(pal, layout) {
       const bctx = this._bgCtx;
-      bctx.clearRect(0, 0, WORLD_W, WORLD_H);
-      this._drawSuwonStationStatic(bctx, pal);
-      this._drawPlazaStatic(bctx, pal);
+      bctx.clearRect(0, 0, layout.WORLD_W, layout.WORLD_H);
+      this._drawSuwonStationStatic(bctx, pal, layout);
+      this._drawPlazaStatic(bctx, pal, layout);
     }
 
-    _drawDynamicBackdropOverlays(ctx, pal, state) {
+    _drawDynamicBackdropOverlays(ctx, pal, state, layout) {
       const time = state.time;
+      const W = layout.WORLD_W;
+      const P = layout.PLAZA;
       // Twinkling night stars
       if (pal.neonAlpha > 0.25) {
-        const starSeeds = [90, 180, 260, 420, 560, 740, 890, 1020, 1140, 1210];
+        const starSeeds =
+          layout.mode === 'portrait'
+            ? [60, 140, 220, 320, 440, 560, 650]
+            : [90, 180, 260, 420, 560, 740, 890, 1020, 1140, 1210];
         ctx.fillStyle = '#ffffff';
         for (let i = 0; i < starSeeds.length; i++) {
           const twinkle = 0.45 + 0.55 * Math.sin(time * 2.5 + i * 1.7);
@@ -316,7 +331,7 @@ window.Ssudam = window.Ssudam || {};
         ctx.strokeStyle = '#09090b';
         ctx.lineWidth = 3;
         for (let i = 0; i < 4; i++) {
-          const bx = ((time * (48 + i * 14) + i * 310) % (WORLD_W + 120)) - 60;
+          const bx = ((time * (48 + i * 14) + i * 210) % (W + 120)) - 60;
           const by = 42 + i * 18 + Math.sin(time * 3 + i) * 10;
           const flap = Math.sin(time * 12 + i * 2) * 7;
           ctx.beginPath();
@@ -333,9 +348,9 @@ window.Ssudam = window.Ssudam || {};
         state.robot.held && state.robot.held.kind === 'person' && state.robot.held.entity.isCulprit;
       if (holdingCulprit) {
         ctx.fillStyle = `rgba(239, 68, 68, ${0.16 + 0.1 * Math.sin(time * 8)})`;
-        ctx.fillRect(0, PLAZA.top, PLAZA.left, PLAZA.bottom - PLAZA.top);
-        ctx.fillRect(PLAZA.right, PLAZA.top, WORLD_W - PLAZA.right, PLAZA.bottom - PLAZA.top);
-        ctx.fillRect(0, PLAZA.bottom, WORLD_W, WORLD_H - PLAZA.bottom);
+        ctx.fillRect(0, P.top, P.left, P.bottom - P.top);
+        ctx.fillRect(P.right, P.top, W - P.right, P.bottom - P.top);
+        ctx.fillRect(0, P.bottom, W, (layout.mode === 'portrait' ? 52 : layout.WORLD_H - P.bottom));
       }
     }
 
@@ -351,74 +366,82 @@ window.Ssudam = window.Ssudam || {};
       ctx.fillRect(0, Math.max(0, splitY), this.cssW, this.cssH - Math.max(0, splitY));
     }
 
-    _drawSuwonStationStatic(ctx, pal) {
+    _drawSuwonStationStatic(ctx, pal, layout) {
+      const W = layout.WORLD_W;
+      const isPortrait = layout.mode === 'portrait';
       const sky = ctx.createLinearGradient(0, 0, 0, 232);
       sky.addColorStop(0, pal.skyTop);
       sky.addColorStop(1, pal.skyBot);
       ctx.fillStyle = sky;
-      ctx.fillRect(0, 0, WORLD_W, 232);
+      ctx.fillRect(0, 0, W, 232);
 
-      // Halloween Full Moon (cheap radial glow instead of shadowBlur)
+      // Halloween Full Moon (cheap radial glow)
       if (pal.halloweenAlpha > 0.15) {
+        const moonX = isPortrait ? W - 115 : 1070;
         ctx.save();
         ctx.globalAlpha = pal.halloweenAlpha;
-        const halo = ctx.createRadialGradient(1070, 58, 22, 1070, 58, 62);
+        const halo = ctx.createRadialGradient(moonX, 58, 22, moonX, 58, 62);
         halo.addColorStop(0, 'rgba(250, 204, 21, 0.5)');
         halo.addColorStop(1, 'rgba(250, 204, 21, 0)');
         ctx.fillStyle = halo;
         ctx.beginPath();
-        ctx.arc(1070, 58, 62, 0, Math.PI * 2);
+        ctx.arc(moonX, 58, 62, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.fillStyle = '#fef08a';
         ctx.beginPath();
-        ctx.arc(1070, 58, 30, 0, Math.PI * 2);
+        ctx.arc(moonX, 58, 30, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = 'rgba(234, 179, 8, 0.25)';
         ctx.beginPath();
-        ctx.arc(1062, 52, 7, 0, Math.PI * 2);
-        ctx.arc(1078, 66, 5, 0, Math.PI * 2);
+        ctx.arc(moonX - 8, 52, 7, 0, Math.PI * 2);
+        ctx.arc(moonX + 8, 66, 5, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
       }
 
       // Background skyline silhouettes
       ctx.fillStyle = pal.neonAlpha > 0.35 ? 'rgba(15, 23, 42, 0.55)' : 'rgba(148, 184, 218, 0.42)';
-      const buildings = [
-        [20, 70, 95, 160],
-        [125, 95, 70, 135],
-        [210, 55, 110, 175],
-        [960, 62, 105, 168],
-        [1080, 88, 82, 142],
-        [1175, 68, 90, 162],
-      ];
+      const buildings = isPortrait
+        ? [
+            [10, 78, 70, 152],
+            [640, 74, 72, 156],
+          ]
+        : [
+            [20, 70, 95, 160],
+            [125, 95, 70, 135],
+            [210, 55, 110, 175],
+            [960, 62, 105, 168],
+            [1080, 88, 82, 142],
+            [1175, 68, 90, 162],
+          ];
       for (const [bx, by, bw, bh] of buildings) {
         ctx.fillRect(bx, by, bw, bh);
       }
 
       // Main Suwon Station Building
-      const stX = 280;
-      const stW = 720;
+      const stX = isPortrait ? 80 : 280;
+      const stW = isPortrait ? 560 : 720;
       ctx.fillStyle = pal.stationWall;
       ctx.fillRect(stX, 62, stW, 170);
 
       // Angled Modern Glass Roof Canopy
       ctx.fillStyle = pal.stationRoof;
       ctx.beginPath();
-      ctx.moveTo(stX - 36, 72);
-      ctx.lineTo(WORLD_W * 0.5, 26);
-      ctx.lineTo(stX + stW + 36, 72);
-      ctx.lineTo(stX + stW + 24, 92);
-      ctx.lineTo(stX - 24, 92);
+      ctx.moveTo(stX - 28, 72);
+      ctx.lineTo(W * 0.5, 26);
+      ctx.lineTo(stX + stW + 28, 72);
+      ctx.lineTo(stX + stW + 18, 92);
+      ctx.lineTo(stX - 18, 92);
       ctx.closePath();
       ctx.fill();
 
       // Glass Curtain Wall & Mullions
       ctx.fillStyle = pal.stationGlass;
-      ctx.fillRect(stX + 24, 98, stW - 48, 122);
+      ctx.fillRect(stX + 20, 98, stW - 40, 122);
       ctx.strokeStyle = pal.stationRoof;
       ctx.lineWidth = 3;
-      for (let gx = stX + 24; gx <= stX + stW - 24; gx += 60) {
+      for (let gx = stX + 20; gx <= stX + stW - 20; gx += 56) {
         ctx.beginPath();
         ctx.moveTo(gx, 98);
         ctx.lineTo(gx, 220);
@@ -427,15 +450,15 @@ window.Ssudam = window.Ssudam || {};
 
       // Station Entrance Doors
       ctx.fillStyle = '#0f2744';
-      ctx.fillRect(WORLD_W * 0.5 - 76, 152, 152, 74);
+      ctx.fillRect(W * 0.5 - 70, 152, 140, 74);
       ctx.fillStyle = pal.neonAlpha > 0.3 ? 'rgba(253, 224, 71, 0.35)' : 'rgba(255, 255, 255, 0.25)';
-      ctx.fillRect(WORLD_W * 0.5 - 70, 158, 66, 66);
-      ctx.fillRect(WORLD_W * 0.5 + 4, 158, 66, 66);
+      ctx.fillRect(W * 0.5 - 64, 158, 60, 66);
+      ctx.fillRect(W * 0.5 + 4, 158, 60, 66);
 
       // Signboard: 수원역 SUWON STATION
-      const signW = 286;
+      const signW = isPortrait ? 256 : 286;
       const signH = 54;
-      const signX = WORLD_W * 0.5 - signW * 0.5;
+      const signX = W * 0.5 - signW * 0.5;
       const signY = 50;
       ctx.save();
       if (pal.neonAlpha > 0.2) {
@@ -455,29 +478,29 @@ window.Ssudam = window.Ssudam || {};
       ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'center';
       ctx.font = '900 24px "Pretendard", "Malgun Gothic", sans-serif';
-      ctx.fillText('수원역', WORLD_W * 0.5, signY + 28);
+      ctx.fillText('수원역', W * 0.5, signY + 28);
       ctx.font = '700 11px "Pretendard", sans-serif';
       ctx.fillStyle = pal.halloweenAlpha > 0.4 ? '#fdba74' : '#93c5fd';
-      ctx.fillText(pal.halloweenAlpha > 0.4 ? 'SUWON STATION · HALLOWEEN' : 'SUWON STATION', WORLD_W * 0.5, signY + 45);
+      ctx.fillText(pal.halloweenAlpha > 0.4 ? 'SUWON STATION · HALLOWEEN' : 'SUWON STATION', W * 0.5, signY + 45);
 
       // Eco Trees
-      const treePositions = [110, 215, 1065, 1170];
+      const treePositions = isPortrait ? [42, 678] : [110, 215, 1065, 1170];
       for (const tx of treePositions) {
         ctx.fillStyle = '#6b4423';
         ctx.fillRect(tx - 6, 175, 12, 55);
         ctx.fillStyle = pal.halloweenAlpha > 0.4 ? '#3b0764' : '#2e7d32';
         ctx.beginPath();
-        ctx.arc(tx, 162, 34, 0, Math.PI * 2);
+        ctx.arc(tx, 162, 32, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = pal.halloweenAlpha > 0.4 ? '#581c87' : '#43a047';
         ctx.beginPath();
-        ctx.arc(tx - 10, 152, 22, 0, Math.PI * 2);
+        ctx.arc(tx - 9, 152, 20, 0, Math.PI * 2);
         ctx.fill();
       }
 
       // Jack-o'-lantern decorations for Halloween!
       if (pal.halloweenAlpha > 0.25) {
-        const pumpkins = [258, 545, 735, 1022];
+        const pumpkins = isPortrait ? [115, 310, 410, 605] : [258, 545, 735, 1022];
         ctx.save();
         ctx.globalAlpha = pal.halloweenAlpha;
         for (const px of pumpkins) {
@@ -490,7 +513,6 @@ window.Ssudam = window.Ssudam || {};
           ctx.stroke();
           ctx.fillStyle = '#15803d';
           ctx.fillRect(px - 2, 199, 4, 6);
-          // Glowing face
           ctx.fillStyle = '#fef08a';
           ctx.fillRect(px - 7, 210, 4, 4);
           ctx.fillRect(px + 3, 210, 4, 4);
@@ -500,7 +522,8 @@ window.Ssudam = window.Ssudam || {};
       }
 
       // Street Lamps
-      for (const lx of [165, 1115]) {
+      const lampPositions = isPortrait ? [74, 646] : [165, 1115];
+      for (const lx of lampPositions) {
         ctx.fillStyle = '#334155';
         ctx.fillRect(lx - 3, 128, 6, 102);
         ctx.fillStyle = pal.lampGlow > 0.3 ? '#fef08a' : '#e2e8f0';
@@ -519,51 +542,69 @@ window.Ssudam = window.Ssudam || {};
       }
     }
 
-    _drawPlazaStatic(ctx, pal) {
+    _drawPlazaStatic(ctx, pal, layout) {
+      const W = layout.WORLD_W;
+      const H = layout.WORLD_H;
+      const P = layout.PLAZA;
+
       ctx.fillStyle = pal.plazaEdge;
-      ctx.fillRect(0, 226, WORLD_W, WORLD_H - 226);
+      ctx.fillRect(0, 226, W, H - 226);
 
       const tileSize = 64;
-      for (let y = PLAZA.top; y < PLAZA.bottom; y += tileSize) {
-        for (let x = PLAZA.left; x < PLAZA.right; x += tileSize) {
-          const ix = Math.floor((x - PLAZA.left) / tileSize);
-          const iy = Math.floor((y - PLAZA.top) / tileSize);
+      for (let y = P.top; y < P.bottom; y += tileSize) {
+        for (let x = P.left; x < P.right; x += tileSize) {
+          const ix = Math.floor((x - P.left) / tileSize);
+          const iy = Math.floor((y - P.top) / tileSize);
           ctx.fillStyle = (ix + iy) % 2 === 0 ? pal.plazaTileA : pal.plazaTileB;
-          ctx.fillRect(x, y, Math.min(tileSize, PLAZA.right - x), Math.min(tileSize, PLAZA.bottom - y));
+          ctx.fillRect(x, y, Math.min(tileSize, P.right - x), Math.min(tileSize, P.bottom - y));
         }
       }
 
       ctx.fillStyle = 'rgba(245, 158, 11, 0.36)';
-      ctx.fillRect(PLAZA.left, PLAZA.top + 14, PLAZA.right - PLAZA.left, 10);
+      ctx.fillRect(P.left, P.top + 14, P.right - P.left, 10);
 
+      const centerY = (P.top + P.bottom) * 0.5;
       ctx.save();
       ctx.strokeStyle = pal.neonAlpha > 0.3 ? 'rgba(147, 197, 253, 0.16)' : 'rgba(11, 42, 91, 0.08)';
       ctx.lineWidth = 4;
       ctx.beginPath();
-      ctx.arc(WORLD_W * 0.5, 495, 92, 0, Math.PI * 2);
+      ctx.arc(W * 0.5, centerY, 92, 0, Math.PI * 2);
       ctx.stroke();
       ctx.fillStyle = pal.neonAlpha > 0.3 ? 'rgba(147, 197, 253, 0.2)' : 'rgba(11, 42, 91, 0.12)';
       ctx.font = '800 18px "Pretendard", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('SUWON CLEAN PLAZA', WORLD_W * 0.5, 501);
+      ctx.fillText('SUWON CLEAN PLAZA', W * 0.5, centerY + 6);
       ctx.restore();
 
       ctx.save();
       ctx.strokeStyle = 'rgba(239, 68, 68, 0.55)';
       ctx.lineWidth = 4;
       ctx.setLineDash([14, 10]);
-      ctx.strokeRect(PLAZA.left, PLAZA.top, PLAZA.right - PLAZA.left, PLAZA.bottom - PLAZA.top);
+      ctx.strokeRect(P.left, P.top, P.right - P.left, P.bottom - P.top);
       ctx.setLineDash([]);
 
+      const bottomZoneH = layout.mode === 'portrait' ? 42 : H - P.bottom;
       ctx.fillStyle = 'rgba(239, 68, 68, 0.06)';
-      ctx.fillRect(0, PLAZA.top, PLAZA.left, PLAZA.bottom - PLAZA.top);
-      ctx.fillRect(PLAZA.right, PLAZA.top, WORLD_W - PLAZA.right, PLAZA.bottom - PLAZA.top);
-      ctx.fillRect(0, PLAZA.bottom, WORLD_W, WORLD_H - PLAZA.bottom);
+      ctx.fillRect(0, P.top, P.left, P.bottom - P.top);
+      ctx.fillRect(P.right, P.top, W - P.right, P.bottom - P.top);
+      ctx.fillRect(0, P.bottom, W, bottomZoneH);
 
-      ctx.fillStyle = 'rgba(220, 38, 38, 0.7)';
+      ctx.fillStyle = 'rgba(220, 38, 38, 0.72)';
       ctx.font = '800 14px "Pretendard", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('⚾ 광장 밖 홈런 투척 ZONE (투기자 추방!)', WORLD_W * 0.5, PLAZA.bottom + 26);
+      ctx.fillText('⚾ 광장 밖 홈런 투척 ZONE (투기자 추방!)', W * 0.5, P.bottom + 26);
+
+      if (layout.mode === 'portrait') {
+        // Dedicated clean dark-navy bottom control deck in portrait mode
+        ctx.fillStyle = 'rgba(11, 42, 91, 0.88)';
+        ctx.fillRect(0, P.bottom + 42, W, H - (P.bottom + 42));
+        ctx.strokeStyle = 'rgba(147, 197, 253, 0.35)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, P.bottom + 42);
+        ctx.lineTo(W, P.bottom + 42);
+        ctx.stroke();
+      }
       ctx.restore();
     }
 
@@ -1935,8 +1976,9 @@ window.Ssudam = window.Ssudam || {};
 
     _drawTouchControls(ctx, touch, isHolding) {
       ctx.save();
-      const joyX = touch.leftActive ? touch.joyOrigin.x : 78;
-      const joyY = touch.leftActive ? touch.joyOrigin.y : this.cssH - 96;
+      const compact = this.cssW < 560;
+      const joyX = touch.joyOrigin.x;
+      const joyY = touch.joyOrigin.y;
       const knobX = touch.leftActive ? touch.joyCurrent.x : joyX;
       const knobY = touch.leftActive ? touch.joyCurrent.y : joyY;
 
@@ -1946,41 +1988,44 @@ window.Ssudam = window.Ssudam || {};
       const clampedX = jdist > touch.joyOuterR ? joyX + (jdx / jdist) * touch.joyOuterR : knobX;
       const clampedY = jdist > touch.joyOuterR ? joyY + (jdy / jdist) * touch.joyOuterR : knobY;
 
-      ctx.fillStyle = touch.leftActive ? 'rgba(255, 255, 255, 0.22)' : 'rgba(255, 255, 255, 0.12)';
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+      // Fixed Left Joystick
+      ctx.fillStyle = touch.leftActive ? 'rgba(255, 255, 255, 0.24)' : 'rgba(255, 255, 255, 0.14)';
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.arc(joyX, joyY, touch.joyOuterR, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
 
-      ctx.fillStyle = touch.leftActive ? 'rgba(56, 189, 248, 0.78)' : 'rgba(255, 255, 255, 0.35)';
+      ctx.fillStyle = touch.leftActive ? 'rgba(56, 189, 248, 0.85)' : 'rgba(255, 255, 255, 0.45)';
       ctx.beginPath();
       ctx.arc(clampedX, clampedY, touch.joyKnobR, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.fillStyle = 'rgba(255,255,255,0.75)';
-      ctx.font = '700 11px "Pretendard", sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.82)';
+      ctx.font = '700 10.5px "Pretendard", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('이동', joyX, joyY + touch.joyOuterR + 15);
+      ctx.fillText('이동', joyX, joyY + touch.joyOuterR + 14);
 
-      const actX = touch.rightActive ? touch.rightStart.x : this.cssW - 78;
-      const actY = touch.rightActive ? touch.rightStart.y : this.cssH - 96;
+      // Right Touch-to-Grab / Swing-to-Throw Pad
+      const actX = this.cssW - (compact ? 62 : 92);
+      const actY = this.cssH - (compact ? 74 : 92);
+      const actR = compact ? 42 : 46;
       ctx.fillStyle = isHolding ? 'rgba(250, 204, 21, 0.28)' : 'rgba(34, 197, 94, 0.24)';
-      ctx.strokeStyle = isHolding ? 'rgba(250, 204, 21, 0.85)' : 'rgba(74, 222, 128, 0.75)';
+      ctx.strokeStyle = isHolding ? 'rgba(250, 204, 21, 0.9)' : 'rgba(74, 222, 128, 0.8)';
       ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.arc(actX, actY, 44, 0, Math.PI * 2);
+      ctx.arc(actX, actY, actR, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
 
       ctx.fillStyle = '#ffffff';
-      ctx.font = '900 13.5px "Pretendard", sans-serif';
-      ctx.fillText(isHolding ? '투척/드래그' : '집기!', actX, actY + 5);
+      ctx.font = `900 ${compact ? 11.5 : 13}px "Pretendard", sans-serif`;
+      ctx.fillText(isHolding ? '스윙 던지기!' : '터치 집기!', actX, actY + 4);
 
       if (touch.rightActive && touch.rightDragged) {
         ctx.strokeStyle = '#fde047';
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 3.5;
         ctx.beginPath();
         ctx.moveTo(touch.rightStart.x, touch.rightStart.y);
         ctx.lineTo(touch.rightCurrent.x, touch.rightCurrent.y);

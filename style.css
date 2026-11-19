@@ -1295,3 +1295,28 @@ body {
     font-size: 18px;
   }
 }
+
+@media (max-width: 560px) {
+  .skill-dock {
+    bottom: max(12px, env(safe-area-inset-bottom));
+    gap: 6px;
+  }
+
+  .skill-btn {
+    padding: 6px 9px 7px;
+    border-radius: 12px;
+    gap: 5px;
+  }
+
+  .skill-icon {
+    font-size: 15px;
+  }
+
+  .skill-info strong {
+    font-size: 11px;
+  }
+
+  .skill-info small {
+    font-size: 9.5px;
+  }
+}

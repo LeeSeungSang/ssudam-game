@@ -1,33 +1,31 @@
 window.Ssudam = window.Ssudam || {};
 
 (function (ns) {
-  const WORLD_W = 1280;
-  const WORLD_H = 800;
-
-  const PLAZA = {
-    left: 64,
-    right: 1216,
-    top: 238,
-    bottom: 748,
+  const LANDSCAPE_LAYOUT = {
+    mode: 'landscape',
+    WORLD_W: 1280,
+    WORLD_H: 800,
+    PLAZA: { left: 64, right: 1216, top: 238, bottom: 748 },
+    SMART_BIN: { x: 410, y: 204, width: 174, height: 76, autoRadius: 112, magnetRadius: 90 },
+    HUMAN_BIN: { x: 870, y: 204, width: 144, height: 82, autoRadius: 112, magnetRadius: 92 },
+    ROBOT_START: { x: 640, y: 500 },
   };
 
-  const SMART_BIN = {
-    x: 410,
-    y: 204,
-    width: 174,
-    height: 76,
-    autoRadius: 112,
-    magnetRadius: 90,
+  const PORTRAIT_LAYOUT = {
+    mode: 'portrait',
+    WORLD_W: 720,
+    WORLD_H: 1360,
+    PLAZA: { left: 46, right: 674, top: 234, bottom: 1090 },
+    SMART_BIN: { x: 215, y: 198, width: 164, height: 74, autoRadius: 112, magnetRadius: 90 },
+    HUMAN_BIN: { x: 510, y: 198, width: 140, height: 80, autoRadius: 112, magnetRadius: 92 },
+    ROBOT_START: { x: 360, y: 690 },
   };
 
-  const HUMAN_BIN = {
-    x: 870,
-    y: 204,
-    width: 144,
-    height: 82,
-    autoRadius: 112,
-    magnetRadius: 92,
-  };
+  const WORLD_W = LANDSCAPE_LAYOUT.WORLD_W;
+  const WORLD_H = LANDSCAPE_LAYOUT.WORLD_H;
+  const PLAZA = LANDSCAPE_LAYOUT.PLAZA;
+  const SMART_BIN = LANDSCAPE_LAYOUT.SMART_BIN;
+  const HUMAN_BIN = LANDSCAPE_LAYOUT.HUMAN_BIN;
 
   const ROBOT = {
     startX: 640,
@@ -402,21 +400,43 @@ window.Ssudam = window.Ssudam || {};
     return { isNewRecord, newlyUnlockedStage };
   }
 
-  function getViewportTransform(cssW, cssH) {
+  function getLayoutForViewport(cssW, cssH) {
     const safeW = Math.max(1, cssW);
     const safeH = Math.max(1, cssH);
-    const scale = Math.min(safeW / WORLD_W, safeH / WORLD_H);
-    const drawnW = WORLD_W * scale;
-    const drawnH = WORLD_H * scale;
-    const offsetX = (safeW - drawnW) * 0.5;
-    const extraH = safeH - drawnH;
-    const offsetY = extraH > 110 ? Math.min(extraH * 0.44, 105 + (extraH - 110) * 0.35) : extraH * 0.5;
-    return { scale, offsetX, offsetY, cssW: safeW, cssH: safeH };
+    return safeW / safeH < 0.92 ? PORTRAIT_LAYOUT : LANDSCAPE_LAYOUT;
   }
 
+  function getViewportTransform(cssW, cssH, layoutOverride = null) {
+    const safeW = Math.max(1, cssW);
+    const safeH = Math.max(1, cssH);
+    const layout = layoutOverride || getLayoutForViewport(safeW, safeH);
+    const w = layout.WORLD_W;
+    const h = layout.WORLD_H;
+
+    if (layout.mode === 'portrait') {
+      const topReserve = Math.min(92, safeH * 0.12);
+      const scale = Math.min(safeW / w, Math.max(100, safeH - topReserve) / h);
+      const drawnW = w * scale;
+      const drawnH = h * scale;
+      const offsetX = (safeW - drawnW) * 0.5;
+      const offsetY = Math.max(topReserve, safeH - drawnH);
+      return { scale, offsetX, offsetY, cssW: safeW, cssH: safeH, layout };
+    }
+
+    const scale = Math.min(safeW / w, safeH / h);
+    const drawnW = w * scale;
+    const drawnH = h * scale;
+    const offsetX = (safeW - drawnW) * 0.5;
+    const offsetY = (safeH - drawnH) * 0.5;
+    return { scale, offsetX, offsetY, cssW: safeW, cssH: safeH, layout };
+  }
+
+  ns.getLayoutForViewport = getLayoutForViewport;
   ns.getViewportTransform = getViewportTransform;
 
   ns.CONFIG = {
+    LANDSCAPE_LAYOUT,
+    PORTRAIT_LAYOUT,
     WORLD_W,
     WORLD_H,
     PLAZA,

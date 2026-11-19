@@ -1,8 +1,6 @@
 window.Ssudam = window.Ssudam || {};
 
 (function (ns) {
-  const { WORLD_W, WORLD_H } = ns.CONFIG;
-
   class InputManager {
     constructor(canvas, callbacks) {
       this.canvas = canvas;
@@ -15,31 +13,30 @@ window.Ssudam = window.Ssudam || {};
       this.keys = new Set();
 
       // Mouse / Pointer world aim
-      this.aimWorldX = WORLD_W * 0.5;
-      this.aimWorldY = WORLD_H * 0.42;
+      this.aimWorldX = 640;
+      this.aimWorldY = 340;
       this.hasMouseAim = false;
 
       // PC charge / throw state
       this.pcCharging = false;
       this.pcChargeStart = 0;
 
-      // Touch left joystick (in canvas CSS pixels)
+      // Fixed Left Joystick (in canvas CSS pixels)
       this.leftTouchId = null;
-      this.joyOrigin = { x: 0, y: 0 };
-      this.joyCurrent = { x: 0, y: 0 };
-      this.joyOuterR = 54;
-      this.joyKnobR = 22;
-      this.joyDeadzone = 8;
+      this.joyOrigin = { x: 82, y: 400 };
+      this.joyCurrent = { x: 82, y: 400 };
+      this.joyOuterR = 48;
+      this.joyKnobR = 20;
+      this.joyDeadzone = 6;
 
-      // Touch right action / drag-aim (in canvas CSS pixels)
+      // Right Side: Tap = Grab, Swing (Drag >= 24px) & Release = Throw
       this.rightTouchId = null;
       this.rightStart = { x: 0, y: 0 };
       this.rightCurrent = { x: 0, y: 0 };
       this.rightDragged = false;
-      this.rightDragThreshold = 16;
-      this.rightMaxDrag = 105;
+      this.rightDragThreshold = 24;
+      this.rightMaxDrag = 115;
 
-      // Movement vector normalized [-1, 1]
       this.moveX = 0;
       this.moveY = 0;
 
@@ -63,6 +60,14 @@ window.Ssudam = window.Ssudam || {};
       this.moveY = 0;
     }
 
+    getFixedJoystickCenter(cssW, cssH) {
+      const compact = cssW < 560;
+      return {
+        x: compact ? 62 : 92,
+        y: cssH - (compact ? 74 : 92),
+      };
+    }
+
     clientToCanvasCss(clientX, clientY) {
       const rect = this.canvas.getBoundingClientRect();
       return {
@@ -75,9 +80,11 @@ window.Ssudam = window.Ssudam || {};
     clientToWorld(clientX, clientY) {
       const { x, y, rect } = this.clientToCanvasCss(clientX, clientY);
       const vp = ns.getViewportTransform(rect.width, rect.height);
+      const w = vp.layout.WORLD_W;
+      const h = vp.layout.WORLD_H;
       return {
-        x: Math.max(0, Math.min(WORLD_W, (x - vp.offsetX) / vp.scale)),
-        y: Math.max(0, Math.min(WORLD_H, (y - vp.offsetY) / vp.scale)),
+        x: Math.max(0, Math.min(w, (x - vp.offsetX) / vp.scale)),
+        y: Math.max(0, Math.min(h, (y - vp.offsetY) / vp.scale)),
       };
     }
 
@@ -176,7 +183,7 @@ window.Ssudam = window.Ssudam || {};
         }
       });
 
-      // Multi-touch mobile / tablet support
+      // Multi-touch mobile & tablet support (Fixed Joystick + Swing-Only Throw)
       this.canvas.addEventListener(
         'touchstart',
         (e) => {
@@ -186,7 +193,8 @@ window.Ssudam = window.Ssudam || {};
           if (this.paused) return;
 
           const rect = this.canvas.getBoundingClientRect();
-          const midX = rect.left + rect.width * 0.48;
+          const midX = rect.left + rect.width * 0.44;
+          const fixedCenter = this.getFixedJoystickCenter(rect.width, rect.height);
 
           for (let i = 0; i < e.changedTouches.length; i++) {
             const t = e.changedTouches[i];
@@ -194,7 +202,7 @@ window.Ssudam = window.Ssudam || {};
 
             if (t.clientX < midX && this.leftTouchId === null) {
               this.leftTouchId = t.identifier;
-              this.joyOrigin = { x: cssPos.x, y: cssPos.y };
+              this.joyOrigin = fixedCenter;
               this.joyCurrent = { x: cssPos.x, y: cssPos.y };
               this._recomputeTouchMove();
             } else if (this.rightTouchId === null) {
@@ -342,10 +350,12 @@ window.Ssudam = window.Ssudam || {};
 
     getTouchOverlayState() {
       if (!this.isTouchMode) return null;
+      const rect = this.canvas.getBoundingClientRect();
+      const fixedCenter = this.getFixedJoystickCenter(rect.width || 390, rect.height || 844);
       return {
         leftActive: this.leftTouchId !== null,
-        joyOrigin: this.joyOrigin,
-        joyCurrent: this.joyCurrent,
+        joyOrigin: this.leftTouchId !== null ? this.joyOrigin : fixedCenter,
+        joyCurrent: this.leftTouchId !== null ? this.joyCurrent : fixedCenter,
         joyOuterR: this.joyOuterR,
         joyKnobR: this.joyKnobR,
         rightActive: this.rightTouchId !== null,

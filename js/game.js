@@ -2,11 +2,6 @@ window.Ssudam = window.Ssudam || {};
 
 (function (ns) {
   const {
-    WORLD_W,
-    WORLD_H,
-    PLAZA,
-    SMART_BIN,
-    HUMAN_BIN,
     ROBOT,
     TRASH_TYPES,
     STAGE_ORDER,
@@ -167,20 +162,21 @@ window.Ssudam = window.Ssudam || {};
       this.citizenSpawnTimer = 1.0;
 
       this.shake = { x: 0, y: 0, trauma: 0 };
+      this.layout = ns.getLayoutForViewport(this.renderer.cssW, this.renderer.cssH);
       this.smartBin = {
-        x: SMART_BIN.x,
-        y: SMART_BIN.y,
-        width: SMART_BIN.width,
-        height: SMART_BIN.height,
+        x: this.layout.SMART_BIN.x,
+        y: this.layout.SMART_BIN.y,
+        width: this.layout.SMART_BIN.width,
+        height: this.layout.SMART_BIN.height,
         bounce: 0,
         flashIndex: 0,
         flashTimer: 0,
       };
       this.humanBin = {
-        x: HUMAN_BIN.x,
-        y: HUMAN_BIN.y,
-        width: HUMAN_BIN.width,
-        height: HUMAN_BIN.height,
+        x: this.layout.HUMAN_BIN.x,
+        y: this.layout.HUMAN_BIN.y,
+        width: this.layout.HUMAN_BIN.width,
+        height: this.layout.HUMAN_BIN.height,
         bounce: 0,
         lidOpen: 0,
         slamTimer: 0,
@@ -198,15 +194,55 @@ window.Ssudam = window.Ssudam || {};
       this._refreshGlobalRankings();
       this._seedIdleScene();
 
-      window.addEventListener('resize', () => this.renderer.resize());
+      window.addEventListener('resize', () => {
+        this.renderer.resize();
+        this._syncLayout(true);
+      });
       this._lastFrame = performance.now();
       requestAnimationFrame((now) => this._loop(now));
     }
 
+    _syncLayout(clampEntities = true) {
+      const nextLayout = ns.getLayoutForViewport(this.renderer.cssW, this.renderer.cssH);
+      const changed = !this.layout || this.layout.mode !== nextLayout.mode;
+      this.layout = nextLayout;
+
+      this.smartBin.x = nextLayout.SMART_BIN.x;
+      this.smartBin.y = nextLayout.SMART_BIN.y;
+      this.smartBin.width = nextLayout.SMART_BIN.width;
+      this.smartBin.height = nextLayout.SMART_BIN.height;
+
+      this.humanBin.x = nextLayout.HUMAN_BIN.x;
+      this.humanBin.y = nextLayout.HUMAN_BIN.y;
+      this.humanBin.width = nextLayout.HUMAN_BIN.width;
+      this.humanBin.height = nextLayout.HUMAN_BIN.height;
+
+      if (changed && clampEntities && this.robot) {
+        const P = nextLayout.PLAZA;
+        this.robot.x = clamp(this.robot.x, P.left + 26, P.right - 26);
+        this.robot.y = clamp(this.robot.y, P.top + 32, P.bottom - 24);
+        for (const tr of this.trashes) {
+          tr.x = clamp(tr.x, P.left + 20, P.right - 20);
+          tr.y = clamp(tr.y, P.top + 30, P.bottom - 20);
+        }
+        for (const p of this.people) {
+          if (p.yeetFlying) continue;
+          p.x = clamp(p.x, P.left + 25, P.right - 25);
+          p.y = clamp(p.y, P.top + 35, P.bottom - 25);
+          if (typeof p.targetX === 'number') {
+            p.targetX = clamp(p.targetX, P.left + 40, P.right - 40);
+            p.targetY = clamp(p.targetY, P.top + 40, P.bottom - 40);
+          }
+        }
+      }
+    }
+
     _createRobot() {
+      const startX = this.layout && this.layout.ROBOT_START ? this.layout.ROBOT_START.x : ROBOT.startX;
+      const startY = this.layout && this.layout.ROBOT_START ? this.layout.ROBOT_START.y : ROBOT.startY;
       return {
-        x: ROBOT.startX,
-        y: ROBOT.startY,
+        x: startX,
+        y: startY,
         vx: 0,
         vy: 0,
         facingX: 0,
@@ -216,11 +252,11 @@ window.Ssudam = window.Ssudam || {};
         eyeOverrideTimer: 0,
         blink: false,
         blinkTimer: 2.5,
-        handX: ROBOT.startX + 44,
-        handY: ROBOT.startY - 30,
+        handX: startX + 44,
+        handY: startY - 30,
         armStrikeTimer: 0,
-        strikeX: ROBOT.startX + 44,
-        strikeY: ROBOT.startY - 30,
+        strikeX: startX + 44,
+        strikeY: startY - 30,
         gripperOpen: 1,
         reachRadius: ROBOT.armReach,
         held: null,
@@ -391,6 +427,7 @@ window.Ssudam = window.Ssudam || {};
       this.currentStageId = stageCfg.id;
       this.stage = stageCfg;
       this.mode = 'PLAYING';
+      this._syncLayout(false);
       this.input.setPaused(false);
       this.input.resetTransient();
 
@@ -519,15 +556,16 @@ window.Ssudam = window.Ssudam || {};
       this.audio.helperSweep();
 
       const count = SKILLS.helperCount;
-      const topY = PLAZA.top + 38;
-      const botY = PLAZA.bottom - 24;
+      const P = this.layout.PLAZA;
+      const topY = P.top + 38;
+      const botY = P.bottom - 24;
       const stepY = (botY - topY) / Math.max(1, count - 1);
 
       this.helpers = [];
       for (let i = 0; i < count; i++) {
         this.helpers.push({
           rowIdx: i,
-          x: PLAZA.right + 56,
+          x: P.right + 56,
           y: topY + i * stepY,
         });
       }
@@ -567,12 +605,13 @@ window.Ssudam = window.Ssudam || {};
     }
 
     _updateIdlePeople(dt) {
+      const P = this.layout.PLAZA;
       for (const p of this.people) {
         p.walkPhase += dt * 7;
         p.x += p.vx * dt;
         p.y += p.vy * dt;
-        if (p.x < PLAZA.left + 30 || p.x > PLAZA.right - 30) p.vx *= -1;
-        if (p.y < PLAZA.top + 30 || p.y > PLAZA.bottom - 30) p.vy *= -1;
+        if (p.x < P.left + 30 || p.x > P.right - 30) p.vx *= -1;
+        if (p.y < P.top + 30 || p.y > P.bottom - 30) p.vy *= -1;
       }
     }
 
@@ -636,7 +675,7 @@ window.Ssudam = window.Ssudam || {};
 
       const holdingCulprit =
         this.robot.held && this.robot.held.kind === 'person' && this.robot.held.entity.isCulprit;
-      const distHuman = Math.hypot(this.robot.x - HUMAN_BIN.x, this.robot.y - HUMAN_BIN.y);
+      const distHuman = Math.hypot(this.robot.x - this.humanBin.x, this.robot.y - this.humanBin.y);
       const wantLidOpen = holdingCulprit && distHuman < 280 ? 1 : 0;
       this.humanBin.lidOpen += (wantLidOpen - this.humanBin.lidOpen) * Math.min(1, dt * 10);
 
@@ -674,7 +713,8 @@ window.Ssudam = window.Ssudam || {};
     }
 
     _updateHelpers(dt) {
-      let sweepX = PLAZA.right + 100;
+      const P = this.layout.PLAZA;
+      let sweepX = P.right + 100;
       for (const h of this.helpers) {
         h.x -= SKILLS.helperSpeed * dt;
         sweepX = Math.min(sweepX, h.x);
@@ -703,7 +743,7 @@ window.Ssudam = window.Ssudam || {};
       }
 
       // Finish sweep once past left boundary — ensure ZERO trash remains!
-      if (sweepX <= PLAZA.left - 72) {
+      if (sweepX <= P.left - 72) {
         for (let i = this.trashes.length - 1; i >= 0; i--) {
           const tr = this.trashes[i];
           if (tr.held || tr.isHostileToRobot) continue;
@@ -711,7 +751,7 @@ window.Ssudam = window.Ssudam || {};
           this._rewardTrashByHelper(tr);
         }
         this.helpers = [];
-        this._spawnPopup(WORLD_W * 0.5, 340, '🧹 거리 대청소 완료!!', '#4ade80', 1.25);
+        this._spawnPopup(this.layout.WORLD_W * 0.5, P.top + 110, '🧹 거리 대청소 완료!!', '#4ade80', 1.25);
       }
     }
 
@@ -746,8 +786,9 @@ window.Ssudam = window.Ssudam || {};
         r.vy = this.input.moveY * moveSpeed;
       }
 
-      r.x = clamp(r.x + r.vx * dt, PLAZA.left + 26, PLAZA.right - 26);
-      r.y = clamp(r.y + r.vy * dt, PLAZA.top + 32, PLAZA.bottom - 24);
+      const P = this.layout.PLAZA;
+      r.x = clamp(r.x + r.vx * dt, P.left + 26, P.right - 26);
+      r.y = clamp(r.y + r.vy * dt, P.top + 32, P.bottom - 24);
 
       const spd = Math.hypot(r.vx, r.vy);
       if (spd > 10 && r.slipTimer <= 0) {
@@ -799,8 +840,8 @@ window.Ssudam = window.Ssudam || {};
         if (r.innocentDropTimer <= 0) {
           const person = r.held.entity;
           person.held = false;
-          person.x = clamp(r.x + (person.x >= r.x ? 54 : -54), PLAZA.left + 32, PLAZA.right - 32);
-          person.y = clamp(r.y + 12, PLAZA.top + 38, PLAZA.bottom - 24);
+          person.x = clamp(r.x + (person.x >= r.x ? 54 : -54), P.left + 32, P.right - 32);
+          person.y = clamp(r.y + 12, P.top + 38, P.bottom - 24);
           r.held = null;
 
           // Turn into angry culprit and throw trash at robot!
@@ -809,8 +850,8 @@ window.Ssudam = window.Ssudam || {};
           person.role = 'litterer';
           person.dropsRemaining = 0;
           person.exiting = true;
-          person.targetX = person.x < WORLD_W * 0.5 ? PLAZA.left - 45 : PLAZA.right + 45;
-          person.targetY = randRange(PLAZA.top + 50, PLAZA.bottom - 50);
+          person.targetX = person.x < this.layout.WORLD_W * 0.5 ? P.left - 45 : P.right + 45;
+          person.targetY = randRange(P.top + 50, P.bottom - 50);
           person.bubbleText = '받아라!! 💢';
           person.bubbleTimer = 1.8;
 
@@ -821,13 +862,13 @@ window.Ssudam = window.Ssudam || {};
       // Auto-deposit near bin
       if (r.held) {
         if (r.held.kind === 'trash') {
-          const d = Math.hypot(r.x - SMART_BIN.x, r.y - (SMART_BIN.y + 30));
-          if (d <= SMART_BIN.autoRadius) {
+          const d = Math.hypot(r.x - this.smartBin.x, r.y - (this.smartBin.y + 30));
+          if (d <= this.layout.SMART_BIN.autoRadius) {
             this._depositTrash(r.held.entity, false);
           }
         } else if (r.held.kind === 'person' && r.held.entity.isCulprit) {
-          const d = Math.hypot(r.x - HUMAN_BIN.x, r.y - (HUMAN_BIN.y + 30));
-          if (d <= HUMAN_BIN.autoRadius) {
+          const d = Math.hypot(r.x - this.humanBin.x, r.y - (this.humanBin.y + 30));
+          if (d <= this.layout.HUMAN_BIN.autoRadius) {
             this._depositCulpritInHumanBin(r.held.entity, false);
           }
         }
@@ -967,21 +1008,22 @@ window.Ssudam = window.Ssudam || {};
     }
 
     _getSpawnEdgePoint(fromStationBias = false) {
+      const P = this.layout.PLAZA;
       if (fromStationBias || Math.random() < 0.36) {
         return {
-          x: WORLD_W * 0.5 + randRange(-70, 70),
-          y: PLAZA.top + 8,
+          x: this.layout.WORLD_W * 0.5 + randRange(-70, 70),
+          y: P.top + 8,
         };
       }
       if (Math.random() < 0.5) {
         return {
-          x: PLAZA.left + 12,
-          y: randRange(PLAZA.top + 40, PLAZA.bottom - 50),
+          x: P.left + 12,
+          y: randRange(P.top + 40, P.bottom - 50),
         };
       }
       return {
-        x: PLAZA.right - 12,
-        y: randRange(PLAZA.top + 40, PLAZA.bottom - 50),
+        x: P.right - 12,
+        y: randRange(P.top + 40, P.bottom - 50),
       };
     }
 
@@ -999,13 +1041,14 @@ window.Ssudam = window.Ssudam || {};
     }
 
     _spawnLitterer(nearCenter = false) {
+      const P = this.layout.PLAZA;
       const archetype = this._pickLittererArchetype();
       const ctxInfo = this._getCurrentStageContext();
       const gender = this._pickBalancedGender();
       const hairStyle = gender === 'female' ? pickRandom(FEMALE_HAIR_STYLES) : 'short';
       const shirtPool = gender === 'female' ? SHIRT_COLORS_FEMALE : SHIRT_COLORS_MALE;
       const start = nearCenter
-        ? { x: randRange(320, 960), y: randRange(300, 420) }
+        ? { x: randRange(P.left + 120, P.right - 120), y: randRange(P.top + 80, P.top + 220) }
         : this._getSpawnEdgePoint(true);
 
       const speed = archetype === 'runner' ? 152 : archetype === 'boss' ? 88 : 108;
@@ -1034,8 +1077,8 @@ window.Ssudam = window.Ssudam || {};
         rot: 0,
         vRot: 0,
         speed,
-        targetX: randRange(PLAZA.left + 90, PLAZA.right - 90),
-        targetY: randRange(PLAZA.top + 70, PLAZA.bottom - 75),
+        targetX: randRange(P.left + 90, P.right - 90),
+        targetY: randRange(P.top + 70, P.bottom - 75),
         waitTimer: nearCenter ? 0.5 : randRange(0.4, 1.1),
         dropsRemaining,
         isCulprit: false,
@@ -1056,16 +1099,17 @@ window.Ssudam = window.Ssudam || {};
     }
 
     _spawnCitizen(inside = false) {
+      const P = this.layout.PLAZA;
       const ctxInfo = this._getCurrentStageContext();
       const gender = this._pickBalancedGender();
       const hairStyle = gender === 'female' ? pickRandom(FEMALE_HAIR_STYLES) : 'short';
       const shirtPool = gender === 'female' ? SHIRT_COLORS_FEMALE : SHIRT_COLORS_MALE;
       const start = inside
-        ? { x: randRange(PLAZA.left + 80, PLAZA.right - 80), y: randRange(PLAZA.top + 50, PLAZA.bottom - 50) }
+        ? { x: randRange(P.left + 80, P.right - 80), y: randRange(P.top + 50, P.bottom - 50) }
         : this._getSpawnEdgePoint(false);
       const target = {
-        x: randRange(PLAZA.left + 80, PLAZA.right - 80),
-        y: randRange(PLAZA.top + 50, PLAZA.bottom - 50),
+        x: randRange(P.left + 80, P.right - 80),
+        y: randRange(P.top + 50, P.bottom - 50),
       };
       const dx = target.x - start.x;
       const dy = target.y - start.y;
@@ -1123,6 +1167,7 @@ window.Ssudam = window.Ssudam || {};
     }
 
     _dropTrashFrom(person) {
+      const P = this.layout.PLAZA;
       const ctxInfo = this._getCurrentStageContext();
 
       // Stage 8 Halloween Pumpkin Boss Candy Bomb!
@@ -1130,8 +1175,8 @@ window.Ssudam = window.Ssudam || {};
         const bombTypes = ['candy', 'candy', 'candy', 'pumpkin'];
         bombTypes.forEach((t, idx) => {
           const ang = (Math.PI * 2 * idx) / bombTypes.length + randRange(-0.2, 0.2);
-          const tx = clamp(person.x + Math.cos(ang) * 42, PLAZA.left + 26, PLAZA.right - 26);
-          const ty = clamp(person.y + Math.sin(ang) * 32, PLAZA.top + 36, PLAZA.bottom - 26);
+          const tx = clamp(person.x + Math.cos(ang) * 42, P.left + 26, P.right - 26);
+          const ty = clamp(person.y + Math.sin(ang) * 32, P.top + 36, P.bottom - 26);
           this.trashes.push({
             id: this.nextId++,
             type: t,
@@ -1156,8 +1201,8 @@ window.Ssudam = window.Ssudam || {};
       } else {
         const chosenType = this._pickTrashTypeFromContext(ctxInfo);
         const angle = randRange(0, Math.PI * 2);
-        const tx = clamp(person.x + Math.cos(angle) * 26, PLAZA.left + 26, PLAZA.right - 26);
-        const ty = clamp(person.y + Math.sin(angle) * 20, PLAZA.top + 36, PLAZA.bottom - 26);
+        const tx = clamp(person.x + Math.cos(angle) * 26, P.left + 26, P.right - 26);
+        const ty = clamp(person.y + Math.sin(angle) * 20, P.top + 36, P.bottom - 26);
 
         this.trashes.push({
           id: this.nextId++,
@@ -1182,13 +1227,13 @@ window.Ssudam = window.Ssudam || {};
       person.isCulprit = true;
       person.dropsRemaining -= 1;
       person.waitTimer = person.archetype === 'boss' ? 1.5 : 1.25;
-      person.targetX = randRange(PLAZA.left + 90, PLAZA.right - 90);
-      person.targetY = randRange(PLAZA.top + 65, PLAZA.bottom - 65);
+      person.targetX = randRange(P.left + 90, P.right - 90);
+      person.targetY = randRange(P.top + 65, P.bottom - 65);
       if (person.dropsRemaining <= 0) {
         person.exiting = true;
-        const exitEdge = Math.random() < 0.5 ? PLAZA.left - 35 : PLAZA.right + 35;
+        const exitEdge = Math.random() < 0.5 ? P.left - 35 : P.right + 35;
         person.targetX = exitEdge;
-        person.targetY = randRange(PLAZA.top + 50, PLAZA.bottom - 50);
+        person.targetY = randRange(P.top + 50, P.bottom - 50);
       }
     }
 
@@ -1227,27 +1272,28 @@ window.Ssudam = window.Ssudam || {};
 
           // Check mid-flight Smart Bin capture
           if (!tr.isHostileToRobot && tr.thrown && tr.z < 55) {
-            const dBin = Math.hypot(tr.x - SMART_BIN.x, tr.y - SMART_BIN.y);
-            if (dBin <= SMART_BIN.magnetRadius) {
-              const throwDist = Math.hypot(tr.throwOriginX - SMART_BIN.x, tr.throwOriginY - SMART_BIN.y);
+            const dBin = Math.hypot(tr.x - this.smartBin.x, tr.y - this.smartBin.y);
+            if (dBin <= this.layout.SMART_BIN.magnetRadius) {
+              const throwDist = Math.hypot(tr.throwOriginX - this.smartBin.x, tr.throwOriginY - this.smartBin.y);
               this.trashes.splice(i, 1);
               this._rewardTrash(tr, throwDist > 135, false);
               continue;
             }
           }
 
-          if (tr.x < PLAZA.left + 20) {
-            tr.x = PLAZA.left + 20;
+          const P = this.layout.PLAZA;
+          if (tr.x < P.left + 20) {
+            tr.x = P.left + 20;
             tr.vx = Math.abs(tr.vx) * 0.5;
-          } else if (tr.x > PLAZA.right - 20) {
-            tr.x = PLAZA.right - 20;
+          } else if (tr.x > P.right - 20) {
+            tr.x = P.right - 20;
             tr.vx = -Math.abs(tr.vx) * 0.5;
           }
-          if (tr.y < PLAZA.top + 30) {
-            tr.y = PLAZA.top + 30;
+          if (tr.y < P.top + 30) {
+            tr.y = P.top + 30;
             tr.vy = Math.abs(tr.vy) * 0.5;
-          } else if (tr.y > PLAZA.bottom - 20) {
-            tr.y = PLAZA.bottom - 20;
+          } else if (tr.y > P.bottom - 20) {
+            tr.y = P.bottom - 20;
             tr.vy = -Math.abs(tr.vy) * 0.5;
           }
 
@@ -1302,12 +1348,13 @@ window.Ssudam = window.Ssudam || {};
           if (Math.random() < 0.55) {
             this._spawnParticle(p.x, p.y, p.z, '#fde047', 4, 0.35, 'confetti');
           }
-          if (p.x < -120 || p.x > WORLD_W + 120 || p.y < -120 || p.y > WORLD_H + 140) {
+          if (p.x < -120 || p.x > this.layout.WORLD_W + 120 || p.y < -120 || p.y > this.layout.WORLD_H + 140) {
             this.people.splice(i, 1);
           }
           continue;
         }
 
+        const P = this.layout.PLAZA;
         if (p.z > 0 || p.vz !== 0) {
           p.x += p.vx * dt;
           p.y += p.vy * dt;
@@ -1315,21 +1362,21 @@ window.Ssudam = window.Ssudam || {};
           p.vz -= 640 * dt;
           p.rot += p.vRot * dt;
 
-          const dHuman = Math.hypot(p.x - HUMAN_BIN.x, p.y - HUMAN_BIN.y);
-          if (p.isCulprit && p.z < 70 && dHuman <= HUMAN_BIN.magnetRadius) {
-            const throwDist = Math.hypot((p.throwOriginX || p.x) - HUMAN_BIN.x, (p.throwOriginY || p.y) - HUMAN_BIN.y);
+          const dHuman = Math.hypot(p.x - this.humanBin.x, p.y - this.humanBin.y);
+          if (p.isCulprit && p.z < 70 && dHuman <= this.layout.HUMAN_BIN.magnetRadius) {
+            const throwDist = Math.hypot((p.throwOriginX || p.x) - this.humanBin.x, (p.throwOriginY || p.y) - this.humanBin.y);
             this.people.splice(i, 1);
             this._rewardCulpritHumanBin(p, throwDist > 135);
             continue;
           }
 
-          if (p.isCulprit && (p.x < PLAZA.left - 8 || p.x > PLAZA.right + 8 || p.y > PLAZA.bottom + 8)) {
+          if (p.isCulprit && (p.x < P.left - 8 || p.x > P.right + 8 || p.y > P.bottom + 8)) {
             this._triggerHomeRunYeet(p);
             continue;
           }
 
-          if (p.y < PLAZA.top + 20) {
-            p.y = PLAZA.top + 20;
+          if (p.y < P.top + 20) {
+            p.y = P.top + 20;
             p.vy = Math.abs(p.vy) * 0.4;
           }
 
@@ -1357,8 +1404,8 @@ window.Ssudam = window.Ssudam || {};
           p.walkPhase += dt * 7;
           p.x += p.vx * dt;
           p.y += p.vy * dt;
-          if (p.x < PLAZA.left + 25 || p.x > PLAZA.right - 25) p.vx *= -1;
-          if (p.y < PLAZA.top + 35 || p.y > PLAZA.bottom - 25) p.vy *= -1;
+          if (p.x < P.left + 25 || p.x > P.right - 25) p.vx *= -1;
+          if (p.y < P.top + 35 || p.y > P.bottom - 25) p.vy *= -1;
           if (p.lifeTimer <= 0) {
             this.people.splice(i, 1);
           }
@@ -1370,8 +1417,8 @@ window.Ssudam = window.Ssudam || {};
           if (dr < 210) {
             const awayX = (p.x - this.robot.x) / Math.max(1, dr);
             const awayY = (p.y - this.robot.y) / Math.max(1, dr);
-            p.targetX = clamp(p.x + awayX * 220, PLAZA.left + 60, PLAZA.right - 60);
-            p.targetY = clamp(p.y + awayY * 220, PLAZA.top + 60, PLAZA.bottom - 60);
+            p.targetX = clamp(p.x + awayX * 220, P.left + 60, P.right - 60);
+            p.targetY = clamp(p.y + awayY * 220, P.top + 60, P.bottom - 60);
           }
         }
 
@@ -1387,8 +1434,8 @@ window.Ssudam = window.Ssudam || {};
           p.vy = dirY * spd;
           // Drunk lateral zigzag wobble!
           const wobble = p.costume === 'drunk' ? Math.sin(p.walkPhase * 0.7) * 44 : 0;
-          p.x = clamp(p.x + (p.vx - dirY * wobble) * dt, PLAZA.left - 55, PLAZA.right + 55);
-          p.y = clamp(p.y + (p.vy + dirX * wobble) * dt, PLAZA.top + 8, PLAZA.bottom - 18);
+          p.x = clamp(p.x + (p.vx - dirY * wobble) * dt, P.left - 55, P.right + 55);
+          p.y = clamp(p.y + (p.vy + dirX * wobble) * dt, P.top + 8, P.bottom - 18);
           p.walkPhase += dt * (spd * 0.085);
         } else {
           p.vx = 0;
@@ -1561,44 +1608,10 @@ window.Ssudam = window.Ssudam || {};
       }
       if (!this.robot.held) return;
 
+      // Touch/tablet throw requires swinging/dragging in a direction (prevents accidental tap-spam auto-aim)
       if (wasDragged && dragAim) {
         const dist = 210 + dragAim.power * 260;
         this._throwHeldTo(this.robot.x + dragAim.dirX * dist, this.robot.y + dragAim.dirY * dist, dragAim.power);
-      } else {
-        this._smartAutoThrow();
-      }
-    }
-
-    _smartAutoThrow() {
-      const held = this.robot.held;
-      if (!held) return;
-      if (held.kind === 'trash') {
-        const dBin = Math.hypot(this.robot.x - SMART_BIN.x, this.robot.y - SMART_BIN.y);
-        if (dBin <= 480) {
-          this._throwHeldTo(SMART_BIN.x, SMART_BIN.y, 0.85);
-        } else {
-          const safeDist = Math.max(1, dBin);
-          const dx = SMART_BIN.x - this.robot.x;
-          const dy = SMART_BIN.y - this.robot.y;
-          this._throwHeldTo(this.robot.x + (dx / safeDist) * 440, this.robot.y + (dy / safeDist) * 440, 0.9);
-        }
-      } else if (held.kind === 'person' && held.entity.isCulprit) {
-        const dHuman = Math.hypot(this.robot.x - HUMAN_BIN.x, this.robot.y - HUMAN_BIN.y);
-        if (dHuman <= 430) {
-          this._throwHeldTo(HUMAN_BIN.x, HUMAN_BIN.y, 0.9);
-        } else {
-          const dLeft = this.robot.x - PLAZA.left;
-          const dRight = PLAZA.right - this.robot.x;
-          const dBot = PLAZA.bottom - this.robot.y;
-          const minD = Math.min(dLeft, dRight, dBot);
-          if (minD === dLeft) {
-            this._throwHeldTo(PLAZA.left - 80, this.robot.y, 0.95);
-          } else if (minD === dRight) {
-            this._throwHeldTo(PLAZA.right + 80, this.robot.y, 0.95);
-          } else {
-            this._throwHeldTo(this.robot.x, PLAZA.bottom + 80, 0.95);
-          }
-        }
       }
     }
 
@@ -1611,14 +1624,14 @@ window.Ssudam = window.Ssudam || {};
       let finalX = targetX;
       let finalY = targetY;
       if (held.kind === 'trash') {
-        if (Math.hypot(targetX - SMART_BIN.x, targetY - SMART_BIN.y) <= SMART_BIN.magnetRadius + 24) {
-          finalX = SMART_BIN.x;
-          finalY = SMART_BIN.y;
+        if (Math.hypot(targetX - this.smartBin.x, targetY - this.smartBin.y) <= this.layout.SMART_BIN.magnetRadius + 24) {
+          finalX = this.smartBin.x;
+          finalY = this.smartBin.y;
         }
       } else if (held.kind === 'person' && held.entity.isCulprit) {
-        if (Math.hypot(targetX - HUMAN_BIN.x, targetY - HUMAN_BIN.y) <= HUMAN_BIN.magnetRadius + 26) {
-          finalX = HUMAN_BIN.x;
-          finalY = HUMAN_BIN.y;
+        if (Math.hypot(targetX - this.humanBin.x, targetY - this.humanBin.y) <= this.layout.HUMAN_BIN.magnetRadius + 26) {
+          finalX = this.humanBin.x;
+          finalY = this.humanBin.y;
         }
       }
 
@@ -1676,18 +1689,18 @@ window.Ssudam = window.Ssudam || {};
 
       if (def.isRare) {
         this.audio.rareBonus();
-        this._burstConfetti(viaVacuum ? this.robot.x : SMART_BIN.x, (viaVacuum ? this.robot.y : SMART_BIN.y) - 20, '#fde047', 16);
+        this._burstConfetti(viaVacuum ? this.robot.x : this.smartBin.x, (viaVacuum ? this.robot.y : this.smartBin.y) - 20, '#fde047', 16);
         this._spawnPopup(
-          viaVacuum ? this.robot.x : SMART_BIN.x,
-          (viaVacuum ? this.robot.y : SMART_BIN.y) - 56,
+          viaVacuum ? this.robot.x : this.smartBin.x,
+          (viaVacuum ? this.robot.y : this.smartBin.y) - 56,
           `✨ 희귀 ${def.label.replace(' (희귀)', '')} 2배! +${gained}`,
           '#fde047',
           1.18
         );
       } else {
         if (!viaVacuum) this.audio.binDeposit(this.comboCount);
-        const px = viaVacuum ? this.robot.x : SMART_BIN.x;
-        const py = viaVacuum ? this.robot.y : SMART_BIN.y;
+        const px = viaVacuum ? this.robot.x : this.smartBin.x;
+        const py = viaVacuum ? this.robot.y : this.smartBin.y;
         this._burstConfetti(px, py - 20, def.color, viaVacuum ? 7 : 12);
         this._spawnPopup(
           px,
@@ -1728,7 +1741,7 @@ window.Ssudam = window.Ssudam || {};
       if (p.archetype === 'boss') {
         base += SCORE.bossBonus;
         feverAmt = FEVER.bossGain;
-        this._clearNearestTrashBonus(HUMAN_BIN.x, HUMAN_BIN.y);
+        this._clearNearestTrashBonus(this.humanBin.x, this.humanBin.y);
       }
       const gained = this._applyPoints(base, feverAmt);
       this.culpritsHandled += 1;
@@ -1741,15 +1754,15 @@ window.Ssudam = window.Ssudam || {};
       this.robot.eyeOverrideTimer = 0.6;
 
       this.audio.humanBinSlam();
-      this._burstConfetti(HUMAN_BIN.x, HUMAN_BIN.y - 22, '#facc15', 18);
+      this._burstConfetti(this.humanBin.x, this.humanBin.y - 22, '#facc15', 18);
       this._spawnPopup(
-        HUMAN_BIN.x,
-        HUMAN_BIN.y - 60,
+        this.humanBin.x,
+        this.humanBin.y - 60,
         isRanged ? `🏀 슈퍼 덩크!! +${gained}` : `🗑️ 인간쓰레기통 입성! +${gained}`,
         '#fde047',
         1.22
       );
-      this._rollCulpritSkillDrops(HUMAN_BIN.x, HUMAN_BIN.y, true);
+      this._rollCulpritSkillDrops(this.humanBin.x, this.humanBin.y, true);
     }
 
     _triggerHomeRunYeet(p) {
@@ -1775,10 +1788,16 @@ window.Ssudam = window.Ssudam || {};
       this.robot.eyeMode = 'happy';
       this.robot.eyeOverrideTimer = 0.55;
 
-      const popX = clamp(p.x, 150, WORLD_W - 150);
-      const popY = clamp(p.y - 40, 260, WORLD_H - 90);
+      const P = this.layout.PLAZA;
+      const popX = clamp(p.x, 120, this.layout.WORLD_W - 120);
+      const popY = clamp(p.y - 40, P.top + 30, P.bottom - 50);
       this.audio.yeetHomeRun();
-      this._burstConfetti(clamp(p.x, 40, WORLD_W - 40), clamp(p.y, 240, WORLD_H - 40), '#f97316', 16);
+      this._burstConfetti(
+        clamp(p.x, 40, this.layout.WORLD_W - 40),
+        clamp(p.y, P.top + 10, P.bottom - 20),
+        '#f97316',
+        16
+      );
       this._spawnPopup(popX, popY, `⚾ 광장 밖 홈런!! +${gained}`, '#fb923c', 1.22);
       this._rollCulpritSkillDrops(popX, popY, false);
     }
@@ -2435,6 +2454,7 @@ window.Ssudam = window.Ssudam || {};
 
       return {
         time: this.time,
+        layout: this.layout,
         theme: this.mode === 'TITLE' ? 'bright_day' : this.stage.theme,
         isNight: ctxInfo.isNight,
         cyclePhase: (this.elapsed % (28 * STAGE_ORDER.length)) / (28 * STAGE_ORDER.length),
