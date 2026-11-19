@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+  />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#0B2A5B" />
+  <title>쓰담쓰담: 수원역 대청소</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="js/config.js" defer></script>
+  <script src="js/audio.js" defer></script>
+  <script src="js/input.js" defer></script>
+  <script src="js/renderer.js" defer></script>
+  <script src="js/game.js" defer></script>
+</head>
+<body>
+  <div id="app">
+    <canvas id="game-canvas"></canvas>
+
+    <!-- 상단 HUD -->
+    <header id="hud" class="hud hidden" aria-label="게임 상태 표시줄">
+      <div class="hud-left">
+        <div class="hud-pill hud-stage" id="hud-stage">🌅 출근길 수원역</div>
+        <div class="hud-pill hud-timer" id="hud-timer">01:05</div>
+      </div>
+
+      <div class="hud-center">
+        <div class="meter-box" id="hud-overload-box">
+          <div class="meter-label">
+            <span>🗑️ 광장 오염도(과부하)</span>
+            <strong id="hud-overload-text">0%</strong>
+          </div>
+          <div class="meter-track">
+            <div class="meter-fill overload-fill" id="hud-overload-fill"></div>
+          </div>
+        </div>
+
+        <div class="meter-box" id="hud-fever-box">
+          <div class="meter-label">
+            <span>⚡ 피버 게이지</span>
+            <strong id="hud-fever-text">0%</strong>
+          </div>
+          <div class="meter-track">
+            <div class="meter-fill fever-fill" id="hud-fever-fill"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="hud-right">
+        <div class="score-group">
+          <span class="combo-badge hidden" id="hud-combo">x1.0</span>
+          <div class="hud-pill hud-score">
+            <span class="score-label">SCORE</span>
+            <strong id="hud-score">0</strong>
+          </div>
+        </div>
+        <button id="btn-mute" class="icon-btn" type="button" title="사운드 켜기/끄기" aria-label="사운드 켜기/끄기">🔊</button>
+        <button id="btn-pause" class="icon-btn" type="button" title="일시정지" aria-label="일시정지">⏸</button>
+      </div>
+    </header>
+
+    <!-- 인게임 토스트 배너 -->
+    <div id="toast-banner" class="toast-banner hidden" role="status" aria-live="polite"></div>
+
+    <!-- 타이틀 / 스테이지 선택 오버레이 -->
+    <section id="overlay-title" class="overlay">
+      <div class="panel title-panel">
+        <div class="title-hero">
+          <div class="hero-badge">수원역 도시환경 자율주행 청소 로봇</div>
+          <h1 class="game-title">
+            <span class="title-main">쓰담쓰담</span>
+            <span class="title-sub">수원역 대청소 🌿</span>
+          </h1>
+          <p class="title-desc">
+            다관절 로봇팔로 쓰레기를 수거하고, 무단투기자를 잡아
+            <strong>「인간쓰레기통」</strong>에 처넣거나 <strong>광장 밖으로 홈런</strong> 날려버리세요!
+          </p>
+        </div>
+
+        <div class="stage-grid">
+          <button class="stage-card" type="button" data-stage="stage1">
+            <div class="stage-card-head">
+              <span class="stage-icon">🌅</span>
+              <span class="stage-tag">STAGE 1</span>
+            </div>
+            <h3>출근길 수원역</h3>
+            <p>여유로운 아침 광장, 조작에 익숙해지세요 (65초)</p>
+            <div class="stage-best" id="best-stage1">최고: 0점</div>
+          </button>
+
+          <button class="stage-card" type="button" data-stage="stage2">
+            <div class="stage-card-head">
+              <span class="stage-icon">☀️</span>
+              <span class="stage-tag">STAGE 2</span>
+            </div>
+            <h3>점심시간 수원역</h3>
+            <p>유동인구 폭증 &amp; 빠른 질주형 투기자 등장! (75초)</p>
+            <div class="stage-best" id="best-stage2">최고: 0점</div>
+          </button>
+
+          <button class="stage-card" type="button" data-stage="stage3">
+            <div class="stage-card-head">
+              <span class="stage-icon">🌃</span>
+              <span class="stage-tag">STAGE 3</span>
+            </div>
+            <h3>불금 야간 수원역</h3>
+            <p>네온 불빛 아래 대형 투기 빌런 출현! (90초)</p>
+            <div class="stage-best" id="best-stage3">최고: 0점</div>
+          </button>
+
+          <button class="stage-card endless-card" type="button" data-stage="endless">
+            <div class="stage-card-head">
+              <span class="stage-icon">♾️</span>
+              <span class="stage-tag endless-tag">ENDLESS</span>
+            </div>
+            <h3>24시간 무한가동</h3>
+            <p>아침→낮→불금 순환! 고장 날 때까지 최고점수 도전</p>
+            <div class="stage-best" id="best-endless">최고: 0점</div>
+          </button>
+        </div>
+
+        <div class="controls-strip">
+          <div class="ctrl-item">
+            <strong>💻 PC</strong>
+            <span><code>WASD/방향키</code> 이동 · <code>마우스</code> 조준 · <code>클릭/Space</code> 집기·던지기(꾹 누르면 파워 투척)</span>
+          </div>
+          <div class="ctrl-item">
+            <strong>📱 모바일·태블릿</strong>
+            <span><code>왼손</code> 드래그 이동 · <code>오른손 탭</code> 자동 집기/던지기 · <code>드래그</code> 조준 투척</span>
+          </div>
+          <div class="ctrl-item warn-tip">
+            <strong>⚠️ 주의</strong>
+            <span>쓰레기가 <strong>100%</strong> 쌓이면 쓰담쓰담 과부하 고장! 선량한 시민은 잡지 마세요!</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 일시정지 모달 -->
+    <section id="overlay-pause" class="overlay hidden">
+      <div class="panel modal-panel">
+        <h2>⏸ 일시정지</h2>
+        <p class="modal-subtitle">잠깐 숨 고르고 다시 수원역을 깨끗하게!</p>
+        <div class="modal-actions">
+          <button id="btn-resume" class="btn btn-primary" type="button">계속하기</button>
+          <button id="btn-restart-pause" class="btn btn-secondary" type="button">다시 시작</button>
+          <button id="btn-menu-pause" class="btn btn-ghost" type="button">스테이지 선택</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 스테이지 클리어 모달 -->
+    <section id="overlay-clear" class="overlay hidden">
+      <div class="panel modal-panel">
+        <div class="modal-badge clear-badge">STAGE CLEAR!</div>
+        <h2 id="clear-title">수원역 청결 수호 완료!</h2>
+        <div class="stars-row" id="clear-stars">★★★</div>
+        <div id="clear-new-record" class="record-badge hidden">🏆 NEW RECORD!</div>
+
+        <div class="stats-grid">
+          <div class="stat-item">
+            <span>최종 점수</span>
+            <strong id="clear-score">0</strong>
+          </div>
+          <div class="stat-item">
+            <span>수거 쓰레기</span>
+            <strong id="clear-trash">0</strong>
+          </div>
+          <div class="stat-item">
+            <span>처리한 투기자</span>
+            <strong id="clear-culprits">0</strong>
+          </div>
+          <div class="stat-item">
+            <span>최대 콤보</span>
+            <strong id="clear-max-combo">0</strong>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button id="btn-next-stage" class="btn btn-primary" type="button">다음 스테이지 ▶</button>
+          <button id="btn-retry-clear" class="btn btn-secondary" type="button">다시 도전</button>
+          <button id="btn-menu-clear" class="btn btn-ghost" type="button">스테이지 선택</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 게임 오버 (쓰담쓰담 고장) 모달 -->
+    <section id="overlay-gameover" class="overlay hidden">
+      <div class="panel modal-panel gameover-panel">
+        <div class="modal-badge danger-badge">SYSTEM OVERLOAD</div>
+        <h2 id="go-title">💥 쓰담쓰담 과부하 고장!</h2>
+        <p class="modal-subtitle" id="go-subtitle">광장에 쓰레기가 너무 많이 쌓여 로봇이 멈췄습니다...</p>
+        <div id="go-new-record" class="record-badge hidden">🏆 NEW BEST SCORE!</div>
+
+        <div class="stats-grid">
+          <div class="stat-item">
+            <span>최종 점수</span>
+            <strong id="go-score">0</strong>
+          </div>
+          <div class="stat-item">
+            <span>버틴 시간</span>
+            <strong id="go-time">00:00</strong>
+          </div>
+          <div class="stat-item">
+            <span>수거 쓰레기</span>
+            <strong id="go-trash">0</strong>
+          </div>
+          <div class="stat-item">
+            <span>처리한 투기자</span>
+            <strong id="go-culprits">0</strong>
+          </div>
+          <div class="stat-item full-span">
+            <span>최대 콤보</span>
+            <strong id="go-max-combo">0</strong>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button id="btn-retry-go" class="btn btn-primary" type="button">수리 후 재출동 🔧</button>
+          <button id="btn-menu-go" class="btn btn-ghost" type="button">스테이지 선택</button>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>
